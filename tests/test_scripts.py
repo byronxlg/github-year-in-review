@@ -66,6 +66,54 @@ class CollectHelpers(unittest.TestCase):
         self.assertEqual(collect.commit_verb("Fix the thing"), "fix")
 
 
+class AgentDetection(unittest.TestCase):
+    def test_trailers_and_footers(self):
+        c = collect.classify_commit("fix login\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>")
+        self.assertEqual(c["agents"], ["Claude"])
+        self.assertEqual(c["models"], ["Claude Opus 4.5"])
+        self.assertEqual(collect.classify_commit("x\n\nCo-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>")["agents"], ["Copilot"])
+        self.assertEqual(collect.classify_commit("aider: refactor parser")["agents"], ["Aider"])
+        self.assertEqual(collect.classify_commit("x\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>")["agents"], ["Cursor"])
+
+    def test_bot_authors(self):
+        self.assertEqual(collect.classify_commit("Initial plan", "copilot-swe-agent[bot]")["agents"], ["Copilot"])
+        self.assertEqual(collect.classify_commit("wip", "devin-ai-integration[bot]")["agents"], ["Devin"])
+        dep = collect.classify_commit("Bump lodash from 4.17.20 to 4.17.21", "dependabot[bot]")
+        self.assertEqual((dep["agents"], dep["bot"]), ([], "dependabot"))
+
+    def test_mentions_are_not_agent_work(self):
+        for msg in ("fix the codex runner", "docs: how to use Claude", "copilot settings page"):
+            c = collect.classify_commit(msg, "someone")
+            self.assertEqual((c["agents"], c["bot"]), ([], None), msg)
+
+    def test_branch_prefixes(self):
+        self.assertEqual(collect.classify_branch("claude/fix-login-abc"), "Claude Code")
+        self.assertEqual(collect.classify_branch("codex/add-tests"), "Codex")
+        self.assertEqual(collect.classify_branch("copilot/fix-12"), "Copilot coding agent")
+        for ref in ("main", "claude", "claude/", "feature/claude", "", None):
+            self.assertIsNone(collect.classify_branch(ref), ref)
+
+    def test_agent_prs_take_the_larger_signal(self):
+        prs = [{"headRefName": "claude/a"}, {"headRefName": "claude/b"}, {"headRefName": "codex/c"},
+               {"headRefName": "main"}]
+        got = collect.merge_agent_prs({"Claude Code": 5, "Devin": 1}, prs)
+        self.assertEqual(got, [("Claude Code", 5), ("Codex", 1), ("Devin", 1)])
+        self.assertEqual(collect.merge_agent_prs({}, []), [])
+
+    def test_month_ranges(self):
+        r = collect.month_ranges(dt.date(2026, 11, 15), dt.date(2027, 1, 3))
+        self.assertEqual(r, [(dt.date(2026, 11, 15), dt.date(2026, 11, 30)),
+                             (dt.date(2026, 12, 1), dt.date(2026, 12, 31)),
+                             (dt.date(2027, 1, 1), dt.date(2027, 1, 3))])
+
+
+def agents_block(share=0.6, sampled=300, est=600):
+    return {"agent_commits_sampled": sampled, "agent_share": share, "agent_commits_est": est,
+            "by_agent": [["Claude", est - 50], ["Codex", 50]],
+            "by_agent_sampled": [["Claude", sampled - 20], ["Codex", 20]],
+            "models": [], "by_month": [], "prs": [["Claude Code", 40]], "prs_total": 40}
+
+
 class Story(unittest.TestCase):
     def test_quiet_year_drops_thin_beats(self):
         story = build.make_story(year_fixture(), build.CTA)
@@ -83,6 +131,44 @@ class Story(unittest.TestCase):
         self.assertTrue(build.archetype(d)["name"].endswith("Automator"))
         d["new_repos"] = [{"name": f"r{i}", "stars": 0, "description": None, "language": None} for i in range(7)]
         self.assertTrue(build.archetype(d)["name"].endswith("Builder"))
+
+    def test_agents_beat_only_with_signed_commits(self):
+        ids = lambda d: [b["id"] for b in build.make_story(d, build.CTA)["beats"]]
+        self.assertNotIn("agents", ids(year_fixture()))
+        self.assertNotIn("agents", ids(year_fixture(agents=agents_block(share=0.02, sampled=4, est=8))))
+        story = build.make_story(year_fixture(agents=agents_block()), build.CTA)
+        beat = next(b for b in story["beats"] if b["id"] == "agents")
+        self.assertEqual(beat["number"], 60)
+        self.assertIn("Claude and Codex", beat["unit"])
+        self.assertIn("40 pull requests", beat["sub"])
+
+    def test_orchestrator_archetype(self):
+        d = year_fixture(agents=agents_block())
+        self.assertTrue(build.archetype(d)["name"].endswith("Orchestrator"))
+
+    def test_diff_and_releases_drop_on_thin_data(self):
+        pr = dict(year_fixture()["pull_requests"], biggest={"repo": "me/app", "title": "Tiny fix", "additions": 3,
+                  "deletions": 1, "files": 1, "number": 2})
+        ids = [b["id"] for b in build.make_story(year_fixture(pull_requests=pr, releases={"total": 1, "repos": []}),
+                                                  build.CTA)["beats"]]
+        self.assertNotIn("diff", ids)
+        self.assertNotIn("releases", ids)
+        pr["biggest"].update(additions=4000, deletions=900)
+        rel = {"total": 5, "repos": [{"repo": "app", "count": 5, "first": "v0.1.0", "latest": "v1.0.0",
+                                      "latest_date": "2025-09-01"}]}
+        ids = [b["id"] for b in build.make_story(year_fixture(pull_requests=pr, releases=rel), build.CTA)["beats"]]
+        self.assertIn("diff", ids)
+        self.assertIn("releases", ids)
+
+    def test_fit_length_caps_the_film(self):
+        beats = [{"id": i} for i in ("hook", "shape", "run", "clock", "work", "agents", "ship", "diff",
+                                     "releases", "started", "oss", "surprise", "identity", "close")]
+        build.fit_length(beats)
+        self.assertLessEqual(sum(b["duration"] for b in beats), build.MAX_TOTAL)
+        ids = [b["id"] for b in beats]
+        self.assertEqual((ids[0], ids[-1]), ("hook", "close"))
+        self.assertIn("agents", ids)
+        self.assertEqual([b["index"] for b in beats], list(range(1, len(beats) + 1)))
 
     def test_clause(self):
         self.assertEqual(build.clause("Twenty days of an unattended SDLC: Claude supervises"),

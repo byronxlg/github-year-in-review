@@ -1229,7 +1229,7 @@
     ],
     [
       "2026-11-03",
-      32
+      35
     ]
   ],
   "beats": [
@@ -1237,11 +1237,12 @@
       "id": "hook",
       "label": "GitHub, 2026 so far",
       "name": "Byron Smith",
-      "number": 4993,
+      "number": 4996,
       "unit": "contributions",
-      "line": "on GitHub, across 17 repos and 119 active days.",
+      "line": "on GitHub, across 18 repos and 119 active days.",
       "index": 1,
-      "duration": 3.553,
+      "duration": 3.4,
+      "cmd": "year-in-review --user byronxlg --year 2026",
       "start": 0.0
     },
     {
@@ -1257,8 +1258,9 @@
       },
       "first_active_month": 0,
       "index": 2,
-      "duration": 6.281,
-      "start": 3.553
+      "duration": 5.8,
+      "cmd": "git log --since=2026-01-01 --format=%as | uniq -c",
+      "start": 3.4
     },
     {
       "id": "run",
@@ -1277,8 +1279,9 @@
         ]
       ],
       "index": 3,
-      "duration": 4.365,
-      "start": 9.834
+      "duration": 4.4,
+      "cmd": "git log --format=%as | uniq | longest-run",
+      "start": 9.2
     },
     {
       "id": "clock",
@@ -1313,8 +1316,9 @@
       "peak_label": "9 pm",
       "sub": "Latest commit: 03:59 on Oct 27.",
       "index": 4,
-      "duration": 4.899,
-      "start": 14.199
+      "duration": 4.8,
+      "cmd": "git log --date=format:%H --format=%ad | uniq -c",
+      "start": 13.6
     },
     {
       "id": "work",
@@ -1348,8 +1352,37 @@
       "lead": "Twenty days of an unattended AI-native SDLC",
       "lead_name": "unattended",
       "index": 5,
-      "duration": 6.003,
-      "start": 19.098
+      "duration": 5.8,
+      "cmd": "git shortlog -sn --since=2026-01-01",
+      "start": 18.4
+    },
+    {
+      "id": "agents",
+      "label": "Shipped with a team",
+      "number": 57,
+      "unit": "of your commits co-written with Claude",
+      "rows": [
+        {
+          "trailer": "Claude Opus 5.5",
+          "share": 0.366
+        },
+        {
+          "trailer": "Claude Opus 4.8",
+          "share": 0.359
+        },
+        {
+          "trailer": "Claude Opus 4.6",
+          "share": 0.148
+        }
+      ],
+      "trend": "",
+      "prs": "330 pull requests opened with Claude Code.",
+      "auto": "Your cron's 2,640 commits are counted separately.",
+      "sub": "330 pull requests opened with Claude Code.",
+      "index": 6,
+      "duration": 6.4,
+      "cmd": "git log --format='%(trailers:key=Co-authored-by)'",
+      "start": 24.2
     },
     {
       "id": "ship",
@@ -1358,9 +1391,50 @@
       "unit": "pull requests merged",
       "sub": "90% of the 1,324 opened. 57 reviews given.",
       "ext": "Including one into xpaysh/awesome-x402, 301 stars.",
-      "index": 6,
-      "duration": 4.911,
-      "start": 25.101
+      "index": 7,
+      "duration": 4.8,
+      "cmd": "gh pr list --author @me --state merged",
+      "start": 30.6
+    },
+    {
+      "id": "diff",
+      "label": "The biggest change",
+      "repo": "unattended",
+      "pr": 13,
+      "title": "NZ election increment 5",
+      "additions": 80807,
+      "deletions": 40,
+      "files": 42,
+      "total_added": 471092,
+      "total_removed": 159564,
+      "at_least": true,
+      "index": 8,
+      "duration": 5.0,
+      "cmd": "git diff --shortstat",
+      "start": 35.4
+    },
+    {
+      "id": "releases",
+      "label": "Shipped to users",
+      "number": 44,
+      "unit": "releases tagged",
+      "rows": [
+        {
+          "tag": "v2.9.0",
+          "repo": "skillfold",
+          "count": 42
+        },
+        {
+          "tag": "v0.1.1",
+          "repo": "polymarket-tui",
+          "count": 2
+        }
+      ],
+      "sub": "skillfold went from v0.1.0 to v2.9.0.",
+      "index": 9,
+      "duration": 4.8,
+      "cmd": "git tag --sort=-creatordate",
+      "start": 40.4
     },
     {
       "id": "started",
@@ -1385,28 +1459,20 @@
         }
       ],
       "sub": "20 stars earned this year.",
-      "index": 7,
-      "duration": 5.456,
-      "start": 30.012
-    },
-    {
-      "id": "surprise",
-      "label": "One more thing",
-      "number": 2638,
-      "unit": "commits were not you",
-      "sub": "A scheduled job in byronxlg.github.io. It made more commits than you did (1,369).",
-      "index": 8,
-      "duration": 5.457,
-      "start": 35.468
+      "index": 10,
+      "duration": 5.2,
+      "cmd": "gh repo list --source",
+      "start": 45.2
     },
     {
       "id": "identity",
       "label": "2026 so far, in one line",
-      "name": "The Weekend Builder",
-      "reason": "30 new repos, 38% of commits on weekends.",
-      "index": 9,
-      "duration": 4.354,
-      "start": 40.925
+      "name": "The Weekend Orchestrator",
+      "reason": "57% of commits shipped with agents, 38% of commits on weekends.",
+      "index": 11,
+      "duration": 4.6,
+      "cmd": "whoami",
+      "start": 50.4
     },
     {
       "id": "close",
@@ -1414,9 +1480,10 @@
       "handle": "@byronxlg",
       "year": "2026 so far",
       "cta": "Make yours: github.com/byronxlg/github-year-in-review",
-      "index": 10,
-      "duration": 5.0,
-      "start": 45.279
+      "index": 12,
+      "duration": 4.8,
+      "cmd": "git commit -m \"2026, in review\"",
+      "start": 55.0
     }
   ]
 }
