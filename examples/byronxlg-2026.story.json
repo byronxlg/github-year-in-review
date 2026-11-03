@@ -1241,7 +1241,7 @@
       "unit": "contributions",
       "line": "on GitHub, across 18 repos and 119 active days.",
       "index": 1,
-      "duration": 3.4,
+      "duration": 5.7,
       "cmd": "year-in-review --user byronxlg --year 2026",
       "start": 0.0
     },
@@ -1258,9 +1258,9 @@
       },
       "first_active_month": 0,
       "index": 2,
-      "duration": 5.8,
+      "duration": 6.2,
       "cmd": "git log --since=2026-01-01 --format=%as | uniq -c",
-      "start": 3.4
+      "start": 10.1
     },
     {
       "id": "run",
@@ -1279,46 +1279,9 @@
         ]
       ],
       "index": 3,
-      "duration": 4.4,
+      "duration": 5.8,
       "cmd": "git log --format=%as | uniq | longest-run",
-      "start": 9.2
-    },
-    {
-      "id": "clock",
-      "label": "When the work happens",
-      "hours": [
-        37,
-        41,
-        35,
-        34,
-        27,
-        32,
-        50,
-        38,
-        41,
-        43,
-        50,
-        55,
-        43,
-        50,
-        54,
-        66,
-        38,
-        24,
-        42,
-        52,
-        64,
-        114,
-        101,
-        54
-      ],
-      "peak": 21,
-      "peak_label": "9 pm",
-      "sub": "Latest commit: 03:59 on Oct 27.",
-      "index": 4,
-      "duration": 4.8,
-      "cmd": "git log --date=format:%H --format=%ad | uniq -c",
-      "start": 13.6
+      "start": 16.3
     },
     {
       "id": "work",
@@ -1351,10 +1314,10 @@
       ],
       "lead": "Twenty days of an unattended AI-native SDLC",
       "lead_name": "unattended",
-      "index": 5,
-      "duration": 5.8,
+      "index": 4,
+      "duration": 5.9,
       "cmd": "git shortlog -sn --since=2026-01-01",
-      "start": 18.4
+      "start": 26.367
     },
     {
       "id": "agents",
@@ -1379,10 +1342,10 @@
       "prs": "330 pull requests opened with Claude Code.",
       "auto": "Your cron's 2,640 commits are counted separately.",
       "sub": "330 pull requests opened with Claude Code.",
-      "index": 6,
-      "duration": 6.4,
+      "index": 5,
+      "duration": 6.25,
       "cmd": "git log --format='%(trailers:key=Co-authored-by)'",
-      "start": 24.2
+      "start": 32.267
     },
     {
       "id": "ship",
@@ -1391,27 +1354,10 @@
       "unit": "pull requests merged",
       "sub": "90% of the 1,324 opened. 57 reviews given.",
       "ext": "Including one into xpaysh/awesome-x402, 301 stars.",
-      "index": 7,
-      "duration": 4.8,
+      "index": 6,
+      "duration": 5.95,
       "cmd": "gh pr list --author @me --state merged",
-      "start": 30.6
-    },
-    {
-      "id": "diff",
-      "label": "The biggest change",
-      "repo": "unattended",
-      "pr": 13,
-      "title": "NZ election increment 5",
-      "additions": 80807,
-      "deletions": 40,
-      "files": 42,
-      "total_added": 471092,
-      "total_removed": 159564,
-      "at_least": true,
-      "index": 8,
-      "duration": 5.0,
-      "cmd": "git diff --shortstat",
-      "start": 35.4
+      "start": 38.517
     },
     {
       "id": "releases",
@@ -1431,10 +1377,10 @@
         }
       ],
       "sub": "skillfold went from v0.1.0 to v2.9.0.",
-      "index": 9,
-      "duration": 4.8,
+      "index": 7,
+      "duration": 6.1,
       "cmd": "git tag --sort=-creatordate",
-      "start": 40.4
+      "start": 48.467
     },
     {
       "id": "started",
@@ -1459,20 +1405,20 @@
         }
       ],
       "sub": "20 stars earned this year.",
-      "index": 10,
-      "duration": 5.2,
+      "index": 8,
+      "duration": 6.1,
       "cmd": "gh repo list --source",
-      "start": 45.2
+      "start": 54.567
     },
     {
       "id": "identity",
       "label": "2026 so far, in one line",
       "name": "The Weekend Orchestrator",
       "reason": "57% of commits shipped with agents, 38% of commits on weekends.",
-      "index": 11,
-      "duration": 4.6,
+      "index": 9,
+      "duration": 5.3,
       "cmd": "whoami",
-      "start": 50.4
+      "start": 60.667
     },
     {
       "id": "close",
@@ -1480,10 +1426,11 @@
       "handle": "@byronxlg",
       "year": "2026 so far",
       "cta": "Make yours: github.com/byronxlg/github-year-in-review",
-      "index": 12,
-      "duration": 4.8,
+      "index": 10,
+      "duration": 6.0,
       "cmd": "git commit -m \"2026, in review\"",
-      "start": 55.0
+      "start": 65.967
     }
-  ]
+  ],
+  "direction": "b"
 }
