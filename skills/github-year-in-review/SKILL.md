@@ -125,7 +125,7 @@ ffmpeg -y -i year-in-review.mp4 -i poster.jpg \
   -c:a aac -b:a 160k -movflags +faststart tmp.mp4 && mv tmp.mp4 year-in-review.mp4
 ```
 
-**Gate:** `year-in-review.mp4` is H.264, 1080x1350, under 50 MB, 25-60 s (build caps at 60); `poster.jpg` exists.
+**Gate:** `year-in-review.mp4` is H.264, 1080x1350, under 50 MB, 25-75 s (build caps at 70 plus chapter cards); `poster.jpg` exists.
 
 Write `<out>/share-copy.txt`: two or three plain sentences in the user's voice, built from the
 strongest true facts (the archetype, one number, one project). No hashtag wall; at most two.

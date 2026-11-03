@@ -77,6 +77,54 @@ into that beat and the surprise beat is skipped.
 
 Beats 2 to 8 drop out when their data is thin, and the total shrinks (minimum about 25 s).
 
+## v3: one thing moving at a time (2026-11-03)
+
+Feedback on v2: "a little busy and too fast; the command-line animation at the same time as the
+stats animations is too much."
+
+### What v2 did (measured from frames at 2 fps and the template)
+
+- 12 beats in 59.8 s, 5.0 s a beat on average.
+- Content started 0.25 s before the command finished typing, so the typed line and the count-up
+  always overlapped. The cursor blinked for the whole beat and the 52-tick footer rail filled
+  continuously: three things in motion on every frame.
+- Supporting lines entered on a staggered clock from 0.9 s to 2.8 s, so the beat was still moving
+  when it left. Settled hold before the exit: run 0.8 s, started 1.0 s, agents 2.1 s.
+- On-screen words per second (labels, command, copy): run 7.0, agents 7.2, started 8.5; a
+  comfortable reading rate for muted autoplay is about 3.
+
+### The rules for v3
+
+- **One idea per beat, one focal point per moment.** A beat is a question and one answer.
+  Supporting copy is at most one line plus at most three rows.
+- **Sequential motion.** Phase order inside a beat is fixed: the command types and the cursor
+  stops; 0.35 s of stillness; the hero (number, grid, bars) lands; 0.3 s; the supporting group
+  enters as one stagger; then nothing moves. Never two phases at once.
+- **Hold.** At least 3.0 s of stillness after the last motion of a beat (2.5 s is the floor for
+  reading a number and a line at LinkedIn autoplay); the close holds 3.5 s.
+- **Motion budget.** One count-up or one draw per beat. No blinking cursor during the hold. The
+  footer rail steps once per beat at the cut, not continuously. Exits are a 0.4 s fade.
+- **Fewer beats.** 8 to 10 beats in 50 to 75 s. Durations are derived from the content
+  (`build.py:beat_timing`), not fixed, so the hold rule holds whatever the copy.
+- **Reading rate.** Target 3 words per second of beat or less, counted over everything on screen.
+
+Pacing references: Spotify Wrapped (one stat per card, the number lands then holds, the next
+card waits for a tap), GitHub Unwrapped (one stat per scene, about 4 to 6 s each), Apple keynote
+stat slides (a single number full-frame, silent hold of several seconds before the next slide).
+
+### Two directions tried
+
+- **A, sequential terminal.** Every beat keeps its typed command at the top; the command types
+  and settles, then the stat lands, then the hold. Calmer v2.
+- **B, chapters.** The terminal appears only as a full-frame chapter card between three sections
+  (rhythm, work, output). Stat beats are clean slides with no prompt: one number, one line.
+
+Blind juror (2026-11-03, frames of v2, A and B unlabelled, against Spotify Wrapped, GitHub
+Unwrapped and Apple stat slides) ranked B first on calm, phone readability and shareability, A
+second, v2 last ("the cursor is still typing while the bars grow"). B is the default
+(`--direction b`); A stays available. Juror's open defects in B: small grey secondary lines at
+phone size, chapter cards are sparse, and the cut runs about 72 s.
+
 ## Archetype
 
 Adjective from rhythm, noun from output, each with a one-line reason shown under the name:
