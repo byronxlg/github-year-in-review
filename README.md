@@ -10,11 +10,13 @@ HyperFrames rendering path.
 ![byronxlg 2026 poster](examples/byronxlg-2026.jpg)
 
 Example: [examples/byronxlg-2026.mp4](examples/byronxlg-2026.mp4) (72 s, 1080x1350, 2 MB).
+Thumbnail: [examples/byronxlg-2026-thumbnail.png](examples/byronxlg-2026-thumbnail.png).
 
 ## What the film shows
 
-Every beat opens with a shell prompt typing the command that would answer its question
-(`git log --since=...`, `git diff --shortstat`, `whoami`) and a commit-hash style label.
+Three chapter cards (the rhythm, the work, what shipped) type the shell command that would
+answer that section (`git log --since=...`, `git shortlog -sn`, `git tag`); beats carry a
+commit-hash style label. The last frame has no slide counter or progress rail.
 
 Always there:
 
@@ -68,7 +70,13 @@ S=skills/github-year-in-review/scripts
 python3 $S/collect.py --user octocat --year 2025 --out out/year.json
 python3 $S/build.py out/year.json --out out            # writes out/story.json and out/composition/
 cd out/composition && npx hyperframes check && npx hyperframes render --output ../year-in-review.mp4
+cd .. && npx hyperframes snapshot thumbnail --at 0.5 --no-end -o thumbnail/shots \
+  && cp thumbnail/shots/frame-00-at-0.5s.png thumbnail.png   # 1080x1350 cover, no chrome
 ```
+
+Outputs: `year-in-review.mp4` (1080x1350), `thumbnail.png` (1080x1350, the closing screen
+without counters, rail or CTA; upload it as LinkedIn's custom video thumbnail), `poster.jpg`
+(frame 0, baked into the video), `share-copy.txt`.
 
 ## Privacy and honesty
 

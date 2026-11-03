@@ -125,6 +125,26 @@ second, v2 last ("the cursor is still typing while the bars grow"). B is the def
 (`--direction b`); A stays available. Juror's open defects in B: small grey secondary lines at
 phone size, chapter cards are sparse, and the cut runs about 72 s.
 
+## v4: readable commands, a clean thumbnail (2026-11-03)
+
+Feedback on v3: "I can't see the commands, are they black on black" and "figure out the
+thumbnail, maybe the final screen but cleaner so no slide numbers".
+
+- **Cause.** Not colour. v3 removed the typing tween (and the cursor CSS) from the template when
+  it moved the terminal onto chapter cards, but the cards still render an empty `.cmd` span and
+  `build.py` still budgets typing time. The cards showed `~ $`, then nothing.
+- **Fix.** The template types every `.cmd` whose scene has `type_dur > 0`, from `beat_timing`;
+  the command is ink on the ground (16:1), the prompt `--add` (10.9:1); the block cursor fades
+  once typing ends (no blinking in the hold). Chapter commands are 40 px, shrunk by
+  `term_size` so the longest still fits one line. Every other text colour on the ground or a
+  diff tint is at least 5.4:1 (muted on the add tint is the floor).
+- **Last frame.** The close drops its hash and `10/10` label and the footer rail fades out, so the
+  film ends on the grid, the handle and the CTA only.
+- **Thumbnail.** `build.py` writes `thumbnail/`, a motionless one-second composition of the
+  close with no label, rail or CTA, centred in the full frame; `hyperframes snapshot` turns it
+  into `thumbnail.png` (1080x1350, the video's 4:5 for LinkedIn's custom thumbnail). Frame 0 of
+  the video stays the hook (the post when it autoplays).
+
 ## Archetype
 
 Adjective from rhythm, noun from output, each with a one-line reason shown under the name:

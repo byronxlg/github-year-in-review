@@ -77,6 +77,24 @@
         color: var(--add);
         font-weight: 700;
       }
+      /* the typed command is ink on the ground (16:1); the prompt is --add (10.9:1) */
+      .term .cmd {
+        color: var(--ink);
+        font-weight: 500;
+      }
+      .term .cur {
+        display: block;
+        width: 0.58em;
+        height: 1.15em;
+        margin-left: -10px;
+        background: var(--ink);
+      }
+      .chapter .term {
+        font-size: 40px;
+        height: 60px;
+        gap: 22px;
+        margin-bottom: 30px;
+      }
       .label {
         display: flex;
         gap: 28px;
@@ -531,15 +549,26 @@
       #ticks i.on {
         background: var(--signal);
       }
+      /* thumbnail: the close as a still, no label, no rail, centred in the full frame */
+      .thumb .inner {
+        inset: 0;
+        padding: 0 84px;
+        justify-content: center;
+      }
+      .thumb .stack {
+        flex: none;
+      }
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="main" data-start="0" data-width="1080" data-height="1350" data-duration="__DURATION__">
+    <div id="root" class="__ROOT_CLASS__" data-composition-id="main" data-start="0" data-width="1080" data-height="1350" data-duration="__DURATION__">
     <!--__SCENES__-->
+      <!--rail-->
       <div id="rail" class="clip" data-start="0" data-duration="__DURATION__" data-track-index="2">
         <div class="meta"><b>__HANDLE__</b><span>__YEAR__</span></div>
         <div id="ticks" data-beats="__BEATS__"></div>
       </div>
+      <!--/rail-->
     <!--__AUDIO__-->
     </div>
     <script>
@@ -551,10 +580,10 @@
       const fmt = (v) => Math.round(v).toLocaleString("en-US");
 
       // Footer rail: one segment per beat, lit at the cut (never moving during a beat).
-      const ticks = document.getElementById("ticks");
-      const nBeats = Number(ticks.dataset.beats);
+      const ticks = document.getElementById("ticks");  // absent in the thumbnail
+      const nBeats = ticks ? Number(ticks.dataset.beats) : 0;
       for (let i = 0; i < nBeats; i++) ticks.appendChild(document.createElement("i"));
-      const tickEls = [...ticks.children];
+      const tickEls = ticks ? [...ticks.children] : [];
 
       TIMING.forEach((s, si) => {
         const scene = document.getElementById("s-" + s.key);
@@ -563,6 +592,20 @@
         const end = s.start + s.duration;
         if (s.beat) tl.set(tickEls[s.beat - 1], { backgroundColor: "#ff5b24" }, s.start);
         if (si > 0) tl.fromTo(inner, { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "power1.out" }, s.start);
+        // Phase 0: type the command, then the cursor goes (no blinking during the hold).
+        if (s.type_dur > 0) {
+          const cmd = scene.querySelector(".cmd");
+          const cur = scene.querySelector(".cur");
+          const text = cmd.dataset.cmd;
+          const tp = { n: 0 };
+          tl.fromTo(tp, { n: 0 }, {
+            n: text.length, duration: s.type_dur, ease: "none",
+            onUpdate: () => { cmd.textContent = text.slice(0, Math.round(tp.n)); },
+          }, at(s.type_at));
+          if (cur) tl.to(cur, { opacity: 0, duration: 0.2, ease: "none" }, at(s.type_at + s.type_dur + 0.15));
+        }
+        // The close is the last frame and the thumbnail: no counters or rail on it.
+        if (s.id === "close") tl.to("#rail", { opacity: 0, duration: 0.3, ease: "power1.in" }, s.start);
         // Phase 1: the hero.
         scene.querySelectorAll('[data-p="1"]').forEach((el, k) => {
           if (el.classList.contains("count")) {
