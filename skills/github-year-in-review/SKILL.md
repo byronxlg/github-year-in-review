@@ -1,0 +1,138 @@
+---
+name: github-year-in-review
+description: Turn someone's GitHub year into a short, postable year-in-review video (4:5, about 45 s, made for LinkedIn) using HyperFrames. Use when someone says "/github-year-in-review", "/year-in-review", "make my GitHub wrapped", "my year in code", "GitHub recap video", or wants to share what they shipped this year. Pulls real data with the gh CLI; no screenshots or uploads.
+---
+
+# /github-year-in-review
+
+Your year on GitHub, as a 45-second film you can post.
+
+Sibling of `/brag`: brag turns a project into a launch video, this turns a person's year into
+one. Same rendering path (HyperFrames), same delivery (poster baked as frame 0, share copy).
+The difference is that the story is data, so the data and the beat logic ship as scripts and
+the agent's job is to check the numbers, sharpen the copy, look at the frames, and deliver.
+
+## Invocation
+
+```
+/github-year-in-review
+/github-year-in-review --user octocat --year 2025
+/github-year-in-review --include-private --no-music
+```
+
+| Option | Default |
+|---|---|
+| `--user` | the authenticated `gh` user |
+| `--year` | the current year (labelled "so far" until Dec 31) |
+| `--tz` | this machine's timezone (used for the hour-of-day beat) |
+| `--include-private` | off: private repos are counted, never named |
+| `--no-music` | music on if a track is available |
+| `--format` | `portrait` 1080x1350 (only format shipped) |
+
+Output goes to `year-in-review-<user>-<year>/` in the current directory (add a timestamp if it
+exists). `<skill-dir>` is the directory holding this file.
+
+## Requirements
+
+`gh` authenticated (`gh auth status`), Python 3.9+, Node 18+ with `npx hyperframes`, ffmpeg.
+The HyperFrames domain skills (`hyperframes-core`, `hyperframes-cli`) for check and render.
+
+## Step 1: Collect
+
+```bash
+python3 <skill-dir>/scripts/collect.py --user <login> --year <year> --out <out>/year.json
+```
+
+About two minutes for a busy account (commit history is sampled for the clock beat). It writes
+totals, the daily calendar, rhythm (streak, hours, weekdays), top repos, languages, pull
+requests, new repos, stars gained this year, and **automation**: repos where at least 60% of
+sampled commits share one message template (a cron committing as the user). Automation is kept
+out of the rhythm and "work" beats and becomes its own surprise beat.
+
+**Gate:** read `year.json` and sanity-check it before building. Headline total should match the
+number on the user's GitHub profile for that year. If something looks wrong (a bot the detector
+missed, a repo that should not be named), fix the collector or use `story.json` overrides; never
+hand-edit numbers into the composition.
+
+## Step 2: Story
+
+```bash
+python3 <skill-dir>/scripts/build.py <out>/year.json --out <out> \
+  [--music <track.mp3> --cues <track.music-cues.json>]
+```
+
+This writes `<out>/story.json` (beats, copy, timings) and `<out>/composition/`. Beats, their
+data, and fallbacks are in [references/story.md](references/story.md). Beats with thin data drop
+out, so a quiet year makes a shorter film, not an empty one.
+
+Then read `story.json` and improve the copy where you can be more specific than the defaults
+(captions, the archetype name and reason, the work-beat quote). Rules:
+
+- Every claim must be true to `year.json`. No invented numbers, no superlatives the data does
+  not back.
+- Short lines. The type is large on purpose; anything over about 12 words will not hold long enough.
+- No private repo names unless `--include-private`.
+- No emojis, no em dashes, no "crushing it" register. It is going on LinkedIn.
+
+Rebuild from the edited story with `--story <out>/story.json` (timings are re-derived).
+
+Music: if `/brag` is installed, its bundled tracks and cue presets work as-is
+(`<brag-dir>/assets/music/*.mp3`, `<brag-dir>/assets/music/cues/*.music-cues.json`). Prefer a
+track at least as long as the film. With `--cues`, scene starts snap to the nearest beat.
+Without a track the film is silent, which is fine: LinkedIn autoplays muted.
+
+## Step 3: Check, render, look
+
+```bash
+cd <out>/composition
+npx hyperframes check                       # gate: zero errors; fix line_unread and type-floor warnings too
+npx hyperframes render --quality draft --output ../draft.mp4
+```
+
+Extract one settled frame per beat and look at every one yourself before rendering final:
+
+```bash
+for t in $(jq -r '.beats[]|.start+.duration-0.5' ../story.json); do
+  ffmpeg -loglevel error -ss $t -i ../draft.mp4 -frames:v 1 ../frame-$t.png; done
+```
+
+Look for: overflow or clipped text, a number that does not match `year.json`, an empty or
+boring beat, text that would not read at phone size (scale a frame to 540 px wide), a weak
+first frame. Fix the cause in `story.json` (copy) or report it as a skill bug; then:
+
+```bash
+npx hyperframes render --quality high --output ../year-in-review.mp4
+```
+
+## Step 4: Deliver
+
+Poster: the hook's settled frame (about 2.9 s) is the thumbnail. Bake it as frame 0 so every
+platform shows it (same technique as `/brag` step 4):
+
+```bash
+cd <out>
+ffmpeg -ss 2.9 -i year-in-review.mp4 -frames:v 1 -q:v 2 poster.jpg
+ffmpeg -y -i year-in-review.mp4 -i poster.jpg \
+  -filter_complex "[0:v][1:v]overlay=0:0:enable='eq(n,0)'[v]" \
+  -map "[v]" -map '0:a?' -c:v libx264 -crf 20 -preset slow -pix_fmt yuv420p \
+  -c:a aac -b:a 160k -movflags +faststart tmp.mp4 && mv tmp.mp4 year-in-review.mp4
+```
+
+**Gate:** `year-in-review.mp4` is H.264, 1080x1350, under 50 MB, 25-60 s; `poster.jpg` exists.
+
+Write `<out>/share-copy.txt`: two or three plain sentences in the user's voice, built from the
+strongest true facts (the archetype, one number, one project). No hashtag wall; at most two.
+Example: "My 2026 on GitHub, so far: 30 new repos, a 44-day streak, and a bot that out-committed
+me. Made with github-year-in-review."
+
+Tell the user where the video, poster and share copy are, and one line on what the film says.
+
+## Creative laws
+
+- **Frame 0 is the post.** Name, year and the headline number, settled.
+- **One question, one focal point per beat.** Big number or one shape; everything else is a label.
+- **Identity over inventory.** The film ends on who they were (archetype), not on a total.
+- **Honest.** Automation is named, private names are hidden, partial years say "so far".
+- **Readable muted.** Every beat makes sense with the sound off.
+- **Original look.** The ledger identity in [references/story.md](references/story.md); do not
+  restyle it into Wrapped or Unwrapped.

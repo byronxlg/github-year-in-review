@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1350" />
+    <title>GitHub year in review</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "Bricolage";
+        src: url("assets/fonts/BricolageGrotesque.ttf") format("truetype");
+        font-weight: 200 800;
+        font-stretch: 75% 100%;
+      }
+      @font-face {
+        font-family: "JBMono";
+        src: url("assets/fonts/JetBrainsMono.ttf") format("truetype");
+        font-weight: 100 800;
+      }
+      :root {
+        --ground: #14120f;
+        --ink: #f3eee4;
+        --muted: #a39b8e;
+        --rule: #2a2622;
+        --signal: #ff5b24;
+        --h1: #6a3a22;
+        --h2: #a3431f;
+        --h3: #d9501f;
+        --h4: #ff5b24;
+      }
+      body {
+        margin: 0;
+        background: var(--ground);
+        color: var(--ink);
+        font-family: "JBMono", monospace;
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--ground);
+      }
+      .scene {
+        position: absolute;
+        inset: 0;
+      }
+      .inner {
+        position: absolute;
+        inset: 0 0 150px 0;
+        padding: 96px 84px 0 84px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+      }
+      .label {
+        display: flex;
+        gap: 28px;
+        font-size: 30px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .label .idx {
+        color: var(--signal);
+      }
+      .stack {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 18px;
+      }
+      .big {
+        font-family: "Bricolage", sans-serif;
+        font-weight: 800;
+        font-stretch: 75%;
+        line-height: 0.86;
+        letter-spacing: -0.02em;
+        white-space: nowrap;
+      }
+      .signal {
+        color: var(--signal);
+      }
+      .name,
+      .title,
+      .unit,
+      .arch,
+      .handle,
+      .kicker {
+        font-family: "Bricolage", sans-serif;
+        font-stretch: 75%;
+      }
+      .name {
+        font-size: 92px;
+        font-weight: 700;
+        line-height: 1;
+      }
+      .title {
+        font-size: 76px;
+        font-weight: 700;
+        line-height: 1.02;
+        max-width: 900px;
+        margin-bottom: 26px;
+      }
+      .unit {
+        font-size: 74px;
+        font-weight: 600;
+        line-height: 1.05;
+      }
+      .sub,
+      .caption,
+      .note {
+        font-size: 36px;
+        line-height: 1.4;
+        color: var(--ink);
+        max-width: 900px;
+      }
+      .sub {
+        color: var(--muted);
+        margin-top: 10px;
+      }
+      .caption {
+        margin-top: 30px;
+      }
+      .note {
+        margin-top: 20px;
+        padding-left: 24px;
+        border-left: 6px solid var(--signal);
+      }
+      /* the year grid: one row per month, one cell per day */
+      .grid {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .mrow {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        position: relative;
+      }
+      .ml {
+        width: 70px;
+        font-size: 28px;
+        color: var(--muted);
+        text-transform: uppercase;
+      }
+      .mrow.peak .ml {
+        color: var(--signal);
+        font-weight: 700;
+      }
+      .cells {
+        display: flex;
+        gap: 3.5px;
+      }
+      .c {
+        display: block;
+        width: 23px;
+        height: 38px;
+        border-radius: 3px;
+        background: var(--rule);
+      }
+      .mini {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 56px;
+      }
+      .mini .ml {
+        display: none;
+      }
+      .mini .cells {
+        gap: 4px;
+      }
+      .mini .c {
+        width: 25px;
+        height: 22px;
+        border-radius: 3px;
+      }
+      .c.x {
+        background: transparent;
+      }
+      .c.lf {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--rule);
+      }
+      .c.l1 { background: var(--h1); }
+      .c.l2 { background: var(--h2); }
+      .c.l3 { background: var(--h3); }
+      .c.l4 { background: var(--h4); }
+      .hl {
+        position: absolute;
+        left: 76px;
+        right: -10px;
+        top: -5px;
+        bottom: -5px;
+        border: 3px solid var(--ink);
+        border-radius: 6px;
+      }
+      /* streak facts */
+      .facts {
+        display: flex;
+        gap: 60px;
+        margin-top: 40px;
+        border-top: 2px solid var(--rule);
+        padding-top: 34px;
+      }
+      .fact b {
+        display: block;
+        font-family: "Bricolage", sans-serif;
+        font-stretch: 75%;
+        font-size: 96px;
+        font-weight: 800;
+        line-height: 1;
+      }
+      .fact span {
+        font-size: 30px;
+        color: var(--muted);
+      }
+      /* clock */
+      .hours {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        height: 380px;
+        margin-top: 50px;
+      }
+      .hb {
+        flex: 1;
+        height: 100%;
+        display: flex;
+        align-items: flex-end;
+      }
+      .hb .bar {
+        display: block;
+        width: 100%;
+        background: #5a5047;
+        border-radius: 4px 4px 0 0;
+        transform-origin: 50% 100%;
+      }
+      .hb.peak .bar {
+        background: var(--signal);
+      }
+      .ticks {
+        position: relative;
+        height: 40px;
+        border-top: 2px solid var(--rule);
+        font-size: 28px;
+        color: var(--muted);
+      }
+      .ticks span {
+        position: absolute;
+        top: 8px;
+      }
+      /* work rows */
+      .work {
+        display: flex;
+        flex-direction: column;
+        gap: 44px;
+      }
+      .wl {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 12px;
+      }
+      .wl b {
+        font-family: "Bricolage", sans-serif;
+        font-stretch: 75%;
+        font-size: 58px;
+        font-weight: 700;
+      }
+      .wl span {
+        font-size: 30px;
+        color: var(--ink);
+      }
+      .track {
+        height: 22px;
+        background: var(--rule);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .track .bar {
+        display: block;
+        height: 100%;
+        border-radius: 4px;
+        transform-origin: 0 50%;
+      }
+      .lang {
+        margin-top: 10px;
+        font-size: 28px;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .lang i {
+        display: block;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+      }
+      .quote {
+        margin-top: 44px;
+        font-size: 32px;
+        line-height: 1.45;
+        max-width: 900px;
+      }
+      .quote span {
+        color: var(--signal);
+      }
+      /* started list */
+      .list {
+        display: flex;
+        flex-direction: column;
+        gap: 26px;
+        margin-top: 36px;
+        border-top: 2px solid var(--rule);
+        padding-top: 30px;
+      }
+      .lin {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .lin b {
+        font-family: "Bricolage", sans-serif;
+        font-stretch: 75%;
+        font-size: 52px;
+        font-weight: 700;
+      }
+      .lin span {
+        font-size: 28px;
+        color: var(--signal);
+      }
+      .lid {
+        font-size: 28px;
+        line-height: 1.35;
+        color: var(--muted);
+        max-width: 900px;
+      }
+      /* identity and close */
+      .kicker {
+        font-size: 64px;
+        font-weight: 500;
+        color: var(--muted);
+      }
+      .arch {
+        font-size: 150px;
+        font-weight: 800;
+        line-height: 0.92;
+        color: var(--signal);
+        max-width: 920px;
+      }
+      .handle {
+        font-size: 150px;
+        font-weight: 800;
+        line-height: 0.95;
+      }
+      .cta {
+        margin-top: 60px;
+        font-size: 30px;
+        color: var(--ink);
+        padding: 22px 28px;
+        border: 2px solid var(--signal);
+        border-radius: 8px;
+        align-self: flex-start;
+        white-space: nowrap;
+      }
+      .cta span {
+        display: block;
+        color: var(--signal);
+        margin-bottom: 8px;
+      }
+      /* footer rail: handle, year, and the year filling in as the film plays */
+      #rail {
+        position: absolute;
+        left: 84px;
+        right: 84px;
+        bottom: 64px;
+        height: 70px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      #rail .meta {
+        display: flex;
+        justify-content: space-between;
+        font-size: 28px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      #rail .meta b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      #ticks {
+        display: flex;
+        gap: 4px;
+        height: 14px;
+      }
+      #ticks i {
+        display: block;
+        flex: 1;
+        background: var(--rule);
+        border-radius: 2px;
+      }
+      #ticks i.on {
+        background: var(--signal);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-width="1080" data-height="1350" data-duration="__DURATION__">
+    <!--__SCENES__-->
+      <div id="rail" class="clip" data-start="0" data-duration="__DURATION__" data-track-index="2">
+        <div class="meta"><b>__HANDLE__</b><span>__YEAR__</span></div>
+        <div id="ticks"></div>
+      </div>
+    <!--__AUDIO__-->
+    </div>
+    <script>
+      const TIMING = /*__TIMING__*/[];
+      const TOTAL = Number(document.getElementById("root").dataset.duration);
+      const tl = gsap.timeline({ paused: true });
+      const fmt = (v) => Math.round(v).toLocaleString("en-US");
+
+      // Footer rail: 52 week ticks light up as the film plays.
+      const ticks = document.getElementById("ticks");
+      for (let i = 0; i < 52; i++) ticks.appendChild(document.createElement("i"));
+      const tickEls = [...ticks.children];
+      const railProxy = { p: 0 };
+      tl.fromTo(railProxy, { p: 0 }, {
+        p: 1, duration: TOTAL - 0.5, ease: "none",
+        onUpdate: () => {
+          const lit = Math.round(railProxy.p * 52);
+          tickEls.forEach((el, i) => el.classList.toggle("on", i < lit));
+        },
+      }, 0);
+
+      TIMING.forEach((s, si) => {
+        const scene = document.getElementById("s-" + s.id);
+        const t0 = s.start;
+        const end = s.start + s.duration;
+        // Generic entrances.
+        scene.querySelectorAll(".rise").forEach((el) => {
+          tl.fromTo(el, { opacity: 0, y: 36 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, t0 + Number(el.dataset.at || 0));
+        });
+        scene.querySelectorAll(".count").forEach((el) => {
+          const to = Number(el.dataset.to);
+          const from = Number(el.dataset.from || 0);
+          const proxy = { v: from };
+          const at = t0 + Number(el.dataset.at || 0);
+          tl.fromTo(el, { opacity: si === 0 ? 1 : 0, y: si === 0 ? 0 : 40 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" }, at);
+          tl.fromTo(proxy, { v: from }, {
+            v: to, duration: Number(el.dataset.dur || 1), ease: "power2.out",
+            onUpdate: () => { el.textContent = fmt(proxy.v); },
+          }, at);
+        });
+        // Scene-specific motion.
+        if (s.id === "shape") {
+          const rows = [...scene.querySelectorAll(".mrow")];
+          rows.forEach((row, m) => {
+            tl.fromTo(row.querySelectorAll(".c"), { opacity: 0, scale: 0.4 }, {
+              opacity: 1, scale: 1, duration: 0.25, ease: "power2.out", stagger: 0.012,
+            }, t0 + 0.35 + m * 0.16);
+          });
+          const peak = scene.querySelector(".mrow.peak");
+          if (peak) {
+            const hl = document.createElement("div");
+            hl.className = "hl";
+            peak.appendChild(hl);
+            tl.fromTo(hl, { opacity: 0, scaleX: 0.92 }, { opacity: 1, scaleX: 1, duration: 0.45, ease: "back.out(2)" }, t0 + 2.3);
+            tl.to(rows.filter((r) => r !== peak), { opacity: 0.45, duration: 0.5 }, t0 + 2.3);
+          }
+        }
+        if (s.id === "close") {
+          tl.fromTo(scene.querySelectorAll(".mini .c"), { opacity: 0 }, {
+            opacity: 1, duration: 0.2, ease: "none", stagger: { each: 0.0025, from: "start" },
+          }, t0 + 0.05);
+        }
+        if (s.id === "clock") {
+          tl.fromTo(scene.querySelectorAll(".hb .bar"), { scaleY: 0 }, {
+            scaleY: 1, duration: 0.5, ease: "power3.out", stagger: 0.035,
+          }, t0 + 0.6);
+        }
+        if (s.id === "work") {
+          scene.querySelectorAll(".wbar").forEach((bar, k) => {
+            tl.fromTo(bar, { scaleX: 0 }, { scaleX: 1, duration: 0.8, ease: "power3.out" }, t0 + 0.6 + k * 0.4);
+          });
+        }
+        // Exit: everything in the scene lifts and fades in the last 0.35 s (not the last scene).
+        if (si < TIMING.length - 1) {
+          tl.to(scene.querySelector(".inner"), { opacity: 0, y: -30, duration: 0.3, ease: "power2.in" }, end - 0.32);
+        }
+      });
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
