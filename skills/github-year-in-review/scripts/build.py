@@ -440,17 +440,21 @@ def diff_lines(lines: list[tuple[str, str]], cls: str = "hunk") -> str:
     return f'<div class="{cls}">{"".join(out)}</div>'
 
 
-def scene_html(b: dict, story: dict, total: int, direction: str = "a") -> str:
+def scene_html(b: dict, story: dict, total: int, direction: str = "a", thumb: bool = False) -> str:
     """One beat as HTML. Motion is marked, not timed: data-p="1" is the hero (lands first),
     data-p="2" is the supporting group (enters after the hero settles). beat_timing() turns
-    the marks into times so the phases never overlap."""
+    the marks into times so the phases never overlap. thumb=True is the chrome-free still."""
     i, sid = b["index"], b["id"]
     cmd = b.get("cmd") or COMMANDS[sid].format(user=story["user"], year=story["year"])
     label = (f'<div class="label"><span class="idx">{short_hash(story["user"], story["year"], sid)}</span>'
              f'<span class="ct">{i:02d}/{total:02d}</span><span>{E(b["label"])}</span></div>')
-    if direction == "a":
+    if sid == "close":
+        label = ""  # the last frame carries no slide number or hash
+    if thumb:
+        head = ""
+    elif direction == "a":
         typed = sid == "hook"  # the hook's command is already run: frame 0 is the poster
-        head = (f'<div class="term"><span class="ps">~ $</span><span class="cmd" data-cmd="{E(cmd)}">'
+        head = (f'<div class="term" style="font-size:{term_size(cmd, 28)}px"><span class="ps">~ $</span><span class="cmd" data-cmd="{E(cmd)}">'
                 f'{E(cmd) if typed else ""}</span><i class="cur"></i></div>' + label)
     else:
         head = label
@@ -573,15 +577,20 @@ def scene_html(b: dict, story: dict, total: int, direction: str = "a") -> str:
         {year_grid(story, None, "grid mini")}
         <div class="handle rise" {P1}>{E(b['handle'])}</div>
         <div class="unit rise" {P1}>{E(b['year'])}, in review.</div>
-        <div class="cta rise" {P2}><span>{E(b['cta'].split(': ', 1)[0])}</span>{E(b['cta'].split(': ', 1)[-1])}</div>
+        {"" if thumb else f'<div class="cta rise" {P2}><span>{E(b["cta"].split(": ", 1)[0])}</span>{E(b["cta"].split(": ", 1)[-1])}</div>'}
       </div>"""
     return f'<div class="inner">{head}{body}</div>'
+
+
+def term_size(cmd: str, base: int, width: int = 912) -> int:
+    """Font size (px) that fits '~ $ <cmd>' plus the cursor on one line; JetBrains Mono is 0.6 em a glyph."""
+    return max(24, min(base, int(width / (0.6 * (len(cmd) + 6)))))
 
 
 def chapter_html(ch: dict) -> str:
     """Direction B: the terminal as a chapter card between sections."""
     return (f'<div class="inner chapter"><div class="label"><span class="idx">part {ch["part"]} of {ch["parts"]}</span></div>'
-            f'<div class="stack"><div class="term"><span class="ps">~ $</span><span class="cmd" data-cmd="{E(ch["cmd"])}">'
+            f'<div class="stack"><div class="term" style="font-size:{term_size(ch["cmd"], 40)}px"><span class="ps">~ $</span><span class="cmd" data-cmd="{E(ch["cmd"])}">'
             f'</span><i class="cur"></i></div><div class="arch rise" data-p="2">{E(ch["title"])}</div></div></div>')
 
 
@@ -659,7 +668,7 @@ def build(story: dict, out: Path, music: Path | None, cues: Path | None, directi
                **{k: s[k] for k in keys}} for s in scenes]
     tpl = (ASSETS / "template.html").read_text()
     page = (tpl.replace("__DURATION__", str(total_dur))
-            .replace("__DIRECTION__", "dir-" + direction)
+            .replace("__ROOT_CLASS__", "dir-" + direction)
             .replace("__HANDLE__", E("@" + story["user"]))
             .replace("__YEAR__", E(story["year_label"]))
             .replace("__BEATS__", str(len(beats)))
@@ -667,8 +676,35 @@ def build(story: dict, out: Path, music: Path | None, cues: Path | None, directi
             .replace("<!--__AUDIO__-->", audio)
             .replace("/*__TIMING__*/[]", json.dumps(timing)))
     (comp / "index.html").write_text(page)
+    build_thumbnail(story, out, tpl)
     story["direction"] = direction
     (out / "story.json").write_text(json.dumps(story, indent=2))
+    return comp / "index.html"
+
+
+THUMB_SECONDS = 1.0
+
+
+def build_thumbnail(story: dict, out: Path, tpl: str) -> Path:
+    """<out>/thumbnail/: a one-second, motionless composition of the close (year grid, handle,
+    "<year>, in review.") with no label, slide counter, rail or CTA. Snapshot it to thumbnail.png."""
+    close = next((b for b in story["beats"] if b["id"] == "close"), None)
+    if close is None:
+        raise ValueError("story has no close beat to make a thumbnail from")
+    comp = out / "thumbnail"
+    (comp / "assets" / "fonts").mkdir(parents=True, exist_ok=True)
+    for f in (ASSETS / "fonts").glob("*.ttf"):
+        shutil.copy(f, comp / "assets" / "fonts" / f.name)
+    scene = (f'<section id="s-close" class="clip scene" data-start="0" data-duration="{THUMB_SECONDS}" '
+             f'data-track-index="1">{scene_html(close, story, len(story["beats"]), thumb=True)}</section>')
+    page = re.sub(r"<!--rail-->.*?<!--/rail-->", "", tpl, flags=re.S)
+    page = (page.replace("__DURATION__", str(THUMB_SECONDS))
+            .replace("__ROOT_CLASS__", "thumb")
+            .replace("<title>GitHub year in review</title>", "<title>GitHub year in review: thumbnail</title>")
+            .replace("<!--__SCENES__-->", scene)
+            .replace("<!--__AUDIO__-->", "")
+            .replace("/*__TIMING__*/[]", "[]"))
+    (comp / "index.html").write_text(page)
     return comp / "index.html"
 
 

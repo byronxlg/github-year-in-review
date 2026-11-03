@@ -66,7 +66,8 @@ python3 <skill-dir>/scripts/build.py <out>/year.json --out <out> \
   [--music <track.mp3> --cues <track.music-cues.json>]
 ```
 
-This writes `<out>/story.json` (beats, copy, timings) and `<out>/composition/`. Beats, their
+This writes `<out>/story.json` (beats, copy, timings), `<out>/composition/` (the film) and
+`<out>/thumbnail/` (a one-second still of the close for the cover, see step 4). Beats, their
 data, and fallbacks are in [references/story.md](references/story.md). Beats with thin data drop
 out, so a quiet year makes a shorter film, not an empty one.
 
@@ -96,7 +97,9 @@ npx hyperframes check                       # gate: zero errors; fix line_unread
 npx hyperframes render --quality draft --output ../draft.mp4
 ```
 
-Extract one settled frame per beat and look at every one yourself before rendering final:
+Extract one settled frame per beat and look at every one yourself before rendering final.
+Also look at each chapter card after its command has typed (about 2.5 s into the card): the
+full command must be on screen, one line, ink on the dark ground.
 
 ```bash
 for t in $(jq -r '.beats[]|.start+.duration-0.5' ../story.json); do
@@ -125,14 +128,26 @@ ffmpeg -y -i year-in-review.mp4 -i poster.jpg \
   -c:a aac -b:a 160k -movflags +faststart tmp.mp4 && mv tmp.mp4 year-in-review.mp4
 ```
 
-**Gate:** `year-in-review.mp4` is H.264, 1080x1350, under 50 MB, 25-75 s (build caps at 70 plus chapter cards); `poster.jpg` exists.
+Thumbnail: the close (year grid, handle, "<year>, in review.") as a clean still, with no slide
+counter, hash label, footer rail or CTA. Upload it as the video's custom thumbnail on LinkedIn
+(it matches the video's 4:5 aspect ratio, which LinkedIn expects) and use it anywhere a cover
+image is asked for:
+
+```bash
+cd <out>
+npx hyperframes check thumbnail
+npx hyperframes snapshot thumbnail --at 0.5 --no-end -o thumbnail/shots
+cp thumbnail/shots/frame-00-at-0.5s.png thumbnail.png
+```
+
+**Gate:** `year-in-review.mp4` is H.264, 1080x1350, under 50 MB, 25-75 s (build caps at 70 plus chapter cards); `poster.jpg` exists; `thumbnail.png` is 1080x1350 and you have looked at it (no counters, no rail, nothing clipped).
 
 Write `<out>/share-copy.txt`: two or three plain sentences in the user's voice, built from the
 strongest true facts (the archetype, one number, one project). No hashtag wall; at most two.
 Example: "My 2026 on GitHub, so far: 30 new repos, a 44-day streak, and a bot that out-committed
 me. Made with github-year-in-review."
 
-Tell the user where the video, poster and share copy are, and one line on what the film says.
+Tell the user where the video, thumbnail, poster and share copy are, and one line on what the film says.
 
 ## Creative laws
 

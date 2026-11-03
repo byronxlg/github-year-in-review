@@ -189,6 +189,39 @@ class Story(unittest.TestCase):
             starts = [b["start"] for b in saved["beats"]]
             self.assertEqual(starts, sorted(starts))
 
+    def test_chapter_commands_are_typed_and_fit(self):
+        """v3 regression: chapter cards drew the prompt but never typed the command."""
+        with tempfile.TemporaryDirectory() as tmp:
+            story = build.make_story(year_fixture(), build.CTA)
+            html = build.build(story, Path(tmp), None, None, "b").read_text()
+            self.assertIn('class="cmd" data-cmd="git log --since=2025-01-01', html)
+            self.assertIn("cmd.textContent = text.slice(", html)  # the typing tween exists
+            timing = json.loads(html.split("const TIMING = ")[1].split(";\n")[0])
+            chapters = [s for s in timing if s["id"] == "chapter"]
+            self.assertTrue(chapters)
+            self.assertTrue(all(s["type_dur"] > 0 for s in chapters))
+            self.assertNotIn("__ROOT_CLASS__", html)
+        for cmd in ("git tag --sort=-creatordate", "git log --since=2026-01-01 --author=a-much-longer-login"):
+            size = build.term_size(cmd, 40)
+            self.assertLessEqual(0.6 * size * (len(cmd) + 5), 912)
+
+    def test_close_and_thumbnail_have_no_chrome(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            story = build.make_story(year_fixture(), build.CTA)
+            html = build.build(story, out, None, None).read_text()
+            close = html.split('id="s-close"')[1].split("</section>")[0]
+            self.assertNotIn('class="label"', close)
+            thumb = (out / "thumbnail" / "index.html").read_text()
+            self.assertIn('class="thumb"', thumb)
+            self.assertIn('data-duration="1.0"', thumb)
+            self.assertNotIn('id="rail"', thumb)
+            self.assertNotIn('class="label"', thumb)
+            self.assertNotIn('class="cta', thumb)
+            self.assertNotIn("__", thumb.replace("window.__timelines", ""))
+            self.assertIn("@quiet", thumb)
+            self.assertTrue((out / "thumbnail" / "assets" / "fonts" / "JetBrainsMono.ttf").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
