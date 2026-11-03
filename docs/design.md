@@ -119,6 +119,12 @@ stat slides (a single number full-frame, silent hold of several seconds before t
 - **B, chapters.** The terminal appears only as a full-frame chapter card between three sections
   (rhythm, work, output). Stat beats are clean slides with no prompt: one number, one line.
 
+Blind juror (2026-11-03, frames of v2, A and B unlabelled, against Spotify Wrapped, GitHub
+Unwrapped and Apple stat slides) ranked B first on calm, phone readability and shareability, A
+second, v2 last ("the cursor is still typing while the bars grow"). B is the default
+(`--direction b`); A stays available. Juror's open defects in B: small grey secondary lines at
+phone size, chapter cards are sparse, and the cut runs about 72 s.
+
 ## Archetype
 
 Adjective from rhythm, noun from output, each with a one-line reason shown under the name:

@@ -28,16 +28,23 @@ CTA = "Make yours: github.com/byronxlg/github-year-in-review"
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
           "October", "November", "December"]
 # Rough length per beat, used only to decide which beats fit; real timing comes from beat_timing().
-EST_DURATION = {"hook": 5.3, "shape": 6.0, "run": 5.2, "clock": 5.6, "work": 5.8, "agents": 6.0,
-                "ship": 5.5, "diff": 5.4, "releases": 5.6, "started": 5.6, "oss": 5.6, "surprise": 5.0,
-                "identity": 4.7, "close": 5.6}
-# Pacing (seconds). One thing moves at a time: the hero lands, then the supporting group, then
-# every beat holds still for HOLD before a short fade. See docs/design.md, v3.
-LEAD, GAP, EXIT = 0.15, 0.3, 0.4
+EST_DURATION = {"hook": 5.6, "shape": 7.6, "run": 6.4, "clock": 7.2, "work": 7.6, "agents": 7.8,
+                "ship": 6.9, "diff": 6.9, "releases": 7.2, "started": 7.4, "oss": 7.0, "surprise": 6.4,
+                "identity": 6.0, "close": 6.8}
+# Pacing (seconds). One thing moves at a time; every beat holds still for HOLD before it leaves.
+LEAD, GAP, EXIT = 0.3, 0.35, 0.4
+TYPE_CPS = 30  # typing speed, characters per second
 HERO = {"hook": 1.4, "shape": 1.6, "clock": 1.3, "work": 1.3, "identity": 0.7, "close": 0.8}
 SUPPORT_RISE, STAGGER = 0.55, 0.15
-HOLD = {"default": 2.6, "close": 3.0}
-MAX_TOTAL = 58.0  # LinkedIn: under a minute, with fewer, calmer beats
+HOLD = {"default": 3.0, "close": 3.6, "chapter": 1.2}
+DIRECTION = "b"  # juror pick 2026-11-03; see docs/design.md v3
+# Direction B: chapter cards (title, command, beats in the chapter), inserted before the chapter's first beat.
+CHAPTERS = [
+    ("The rhythm", "git log --since={year}-01-01 --author={user}", ("shape", "run", "clock")),
+    ("The work", "git shortlog -sn --since={year}-01-01", ("work", "agents", "ship", "diff")),
+    ("What shipped", "git tag --sort=-creatordate", ("releases", "started", "oss", "surprise")),
+]
+MAX_TOTAL = 70.0  # LinkedIn: about a minute; calm pacing over more beats
 # Beats dropped first when the film runs long; the last ones go last. hook, identity and close
 # are never dropped. The optional beats that flatter (agents, diff, releases) outlast rhythm detail.
 DROP_ORDER = ["surprise", "oss", "diff", "started", "run", "clock", "releases", "ship", "agents", "work", "shape"]
@@ -433,16 +440,20 @@ def diff_lines(lines: list[tuple[str, str]], cls: str = "hunk") -> str:
     return f'<div class="{cls}">{"".join(out)}</div>'
 
 
-def scene_html(b: dict, story: dict, total: int) -> str:
+def scene_html(b: dict, story: dict, total: int, direction: str = "a") -> str:
     """One beat as HTML. Motion is marked, not timed: data-p="1" is the hero (lands first),
     data-p="2" is the supporting group (enters after the hero settles). beat_timing() turns
     the marks into times so the phases never overlap."""
     i, sid = b["index"], b["id"]
-    head = (f'<div class="label"><span class="idx">{short_hash(story["user"], story["year"], sid)}</span>'
-            f'<span class="ct">{i:02d}/{total:02d}</span><span>{E(b["label"])}</span></div>')
-    if sid == "hook":  # the one prompt in the film: already run, so frame 0 is the poster
-        cmd = b.get("cmd") or COMMANDS[sid].format(user=story["user"], year=story["year"])
-        head = f'<div class="term"><span class="ps">~ $</span><span class="cmd">{E(cmd)}</span></div>' + head
+    cmd = b.get("cmd") or COMMANDS[sid].format(user=story["user"], year=story["year"])
+    label = (f'<div class="label"><span class="idx">{short_hash(story["user"], story["year"], sid)}</span>'
+             f'<span class="ct">{i:02d}/{total:02d}</span><span>{E(b["label"])}</span></div>')
+    if direction == "a":
+        typed = sid == "hook"  # the hook's command is already run: frame 0 is the poster
+        head = (f'<div class="term"><span class="ps">~ $</span><span class="cmd" data-cmd="{E(cmd)}">'
+                f'{E(cmd) if typed else ""}</span><i class="cur"></i></div>' + label)
+    else:
+        head = label
     P1, P2 = 'data-p="1"', 'data-p="2"'
     body = ""
     if sid == "hook":
@@ -567,42 +578,66 @@ def scene_html(b: dict, story: dict, total: int) -> str:
     return f'<div class="inner">{head}{body}</div>'
 
 
-def beat_timing(sid: str, html_: str) -> dict:
-    """Times, relative to the scene start, for the phases of one beat. Never two phases at once:
-    the hero lands (t1), then the supporting group (t2), then the beat holds still until the cut."""
-    t1 = LEAD if sid != "hook" else 0.0
-    hero = HERO.get(sid, 1.2)
-    t2 = t1 + hero + GAP
+def chapter_html(ch: dict) -> str:
+    """Direction B: the terminal as a chapter card between sections."""
+    return (f'<div class="inner chapter"><div class="label"><span class="idx">part {ch["part"]} of {ch["parts"]}</span></div>'
+            f'<div class="stack"><div class="term"><span class="ps">~ $</span><span class="cmd" data-cmd="{E(ch["cmd"])}">'
+            f'</span><i class="cur"></i></div><div class="arch rise" data-p="2">{E(ch["title"])}</div></div></div>')
+
+
+def beat_timing(sid: str, html_: str, typed: str | None) -> dict:
+    """Times, relative to the scene start, for the phases of one scene. Never two phases at once:
+    type the command, stop; then the hero lands; then the supporting group; then hold."""
+    t = LEAD if sid != "hook" else 0.0
+    type_at = type_dur = 0.0
+    if typed:
+        type_at, type_dur = t, min(1.6, 0.3 + len(typed) / TYPE_CPS)
+        t = type_at + type_dur + GAP
+    t1 = t
+    hero = HERO.get(sid, 1.2) if 'data-p="1"' in html_ or sid in ("shape", "close") else 0.0
+    t2 = t1 + hero + (GAP if hero else 0)
     n2 = html_.count('data-p="2"')
-    settle = t2 + SUPPORT_RISE + STAGGER * (n2 - 1) if n2 else t1 + hero
+    settle = t2 + (SUPPORT_RISE + STAGGER * (n2 - 1) if n2 else 0)
     hold = HOLD.get(sid, HOLD["default"])
-    return {"t1": round(t1, 3), "t2": round(t2, 3), "settle": round(settle, 3), "hold": hold,
-            "duration": round(settle + hold + EXIT, 3)}
+    return {"type_at": round(type_at, 3), "type_dur": round(type_dur, 3), "t1": round(t1, 3),
+            "t2": round(t2, 3), "settle": round(settle, 3), "duration": round(settle + hold + EXIT, 3)}
 
 
-def plan_scenes(story: dict) -> list[dict]:
-    """Each beat with its html and phase timing."""
+def plan_scenes(story: dict, direction: str) -> list[dict]:
+    """The beats, plus chapter cards for direction B, each with its html and phase timing."""
     beats = story["beats"]
-    out = []
+    scenes = []
+    parts = [c for c in CHAPTERS if any(b["id"] in c[2] for b in beats)]
     for b in beats:
-        h = scene_html(b, story, len(beats))
-        out.append({"key": b["id"], "id": b["id"], "html": h, "beat": b, **beat_timing(b["id"], h)})
-    return out
+        if direction == "b":
+            for k, (title, cmd, ids) in enumerate(parts):
+                first = next(x for x in beats if x["id"] in ids)
+                if first is b:
+                    ch = {"part": k + 1, "parts": len(parts), "title": title,
+                          "cmd": cmd.format(user=story["user"], year=story["year"])}
+                    h = chapter_html(ch)
+                    scenes.append({"key": f"ch{k + 1}", "id": "chapter", "html": h, "beat": None,
+                                   **beat_timing("chapter", h, ch["cmd"])})
+        h = scene_html(b, story, len(beats), direction)
+        typed = b.get("cmd") if direction == "a" and b["id"] != "hook" else None
+        scenes.append({"key": b["id"], "id": b["id"], "html": h, "beat": b, **beat_timing(b["id"], h, typed)})
+    return scenes
 
 
-def build(story: dict, out: Path, music: Path | None, cues: Path | None) -> Path:
+def build(story: dict, out: Path, music: Path | None, cues: Path | None, direction: str = DIRECTION) -> Path:
     beats = story["beats"]
     for i, b in enumerate(beats):
         b["index"] = i + 1
         b.setdefault("cmd", COMMANDS[b["id"]].format(user=story["user"], year=story["year"]))
-    scenes = plan_scenes(story)
+    scenes = plan_scenes(story, direction)
     grid = []
     if cues and cues.exists():
         grid = json.loads(cues.read_text()).get("beats", [])
         grid = [x["time"] if isinstance(x, dict) else x for x in grid]
     snap_times(scenes, grid)
     for s in scenes:
-        s["beat"]["start"], s["beat"]["duration"] = s["start"], s["duration"]
+        if s["beat"] is not None:
+            s["beat"]["start"], s["beat"]["duration"] = s["start"], s["duration"]
     total_dur = round(scenes[-1]["start"] + scenes[-1]["duration"], 3)
     comp = out / "composition"
     (comp / "assets" / "fonts").mkdir(parents=True, exist_ok=True)
@@ -619,11 +654,12 @@ def build(story: dict, out: Path, music: Path | None, cues: Path | None) -> Path
     html_scenes = "\n    ".join(
         f'<section id="s-{s["key"]}" class="clip scene" data-start="{s["start"]}" data-duration="{s["duration"]}" '
         f'data-track-index="1">{s["html"]}</section>' for s in scenes)
-    keys = ("t1", "t2", "start", "duration")
-    timing = [{"key": s["key"], "id": s["id"], "beat": s["beat"]["index"],
+    keys = ("type_at", "type_dur", "t1", "t2", "start", "duration")
+    timing = [{"key": s["key"], "id": s["id"], "beat": s["beat"]["index"] if s["beat"] else 0,
                **{k: s[k] for k in keys}} for s in scenes]
     tpl = (ASSETS / "template.html").read_text()
     page = (tpl.replace("__DURATION__", str(total_dur))
+            .replace("__DIRECTION__", "dir-" + direction)
             .replace("__HANDLE__", E("@" + story["user"]))
             .replace("__YEAR__", E(story["year_label"]))
             .replace("__BEATS__", str(len(beats)))
@@ -631,6 +667,7 @@ def build(story: dict, out: Path, music: Path | None, cues: Path | None) -> Path
             .replace("<!--__AUDIO__-->", audio)
             .replace("/*__TIMING__*/[]", json.dumps(timing)))
     (comp / "index.html").write_text(page)
+    story["direction"] = direction
     (out / "story.json").write_text(json.dumps(story, indent=2))
     return comp / "index.html"
 
@@ -643,6 +680,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--music")
     p.add_argument("--cues", help="music cue JSON with a beats array, to start scenes on the beat")
     p.add_argument("--cta", default=CTA)
+    p.add_argument("--direction", choices=["a", "b"], default=DIRECTION)
     a = p.parse_args(argv)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -650,7 +688,7 @@ def main(argv: list[str] | None = None) -> int:
         story = json.loads(Path(a.story).read_text())  # copy edits stay; timing is re-derived
     else:
         story = make_story(json.loads(Path(a.year_json).read_text()), a.cta)
-    page = build(story, out, Path(a.music) if a.music else None, Path(a.cues) if a.cues else None)
+    page = build(story, out, Path(a.music) if a.music else None, Path(a.cues) if a.cues else None, a.direction)
     total = story["beats"][-1]["start"] + story["beats"][-1]["duration"]
     print(f"{len(story['beats'])} beats, {total:.1f}s -> {page}", file=sys.stderr)
     return 0
