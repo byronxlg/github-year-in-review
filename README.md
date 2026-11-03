@@ -9,7 +9,7 @@ HyperFrames rendering path.
 
 ![byronxlg 2026 poster](examples/byronxlg-2026.jpg)
 
-Example: [examples/byronxlg-2026.mp4](examples/byronxlg-2026.mp4) (60 s, 1080x1350, 3 MB).
+Example: [examples/byronxlg-2026.mp4](examples/byronxlg-2026.mp4) (72 s, 1080x1350, 2 MB).
 
 ## What the film shows
 
@@ -78,7 +78,7 @@ cd out/composition && npx hyperframes check && npx hyperframes render --output .
 - Partial years are labelled "so far".
 - Agent numbers are lower bounds: only signed commits count, a commit that merely mentions an
   agent does not, and dependency bots (Dependabot, Renovate) are neither you nor an agent.
-- The film caps at 60 s; when too many beats qualify, the least important drop first.
+- The film caps at about 70 s (v3 pacing: one thing moves at a time, then a 3 s hold); when too many beats qualify, the least important drop first.
 
 ## Music
 
