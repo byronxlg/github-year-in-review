@@ -49,6 +49,11 @@ requests, new repos, stars gained this year, and **automation**: repos where at 
 sampled commits share one message template (a cron committing as the user). Automation is kept
 out of the rhythm and "work" beats and becomes its own surprise beat.
 
+It also collects the optional, topical data: **agents** (commits co-written with coding agents,
+detected from signatures only, plus agent PRs by footer, app author and `claude/`-style branch
+prefixes), **releases** tagged this year, and the biggest merged PR. These become beats only
+when the numbers are there (thresholds in [references/story.md](references/story.md)).
+
 **Gate:** read `year.json` and sanity-check it before building. Headline total should match the
 number on the user's GitHub profile for that year. If something looks wrong (a bot the detector
 missed, a repo that should not be named), fix the collector or use `story.json` overrides; never
@@ -73,6 +78,8 @@ Then read `story.json` and improve the copy where you can be more specific than 
 - Short lines. The type is large on purpose; anything over about 12 words will not hold long enough.
 - No private repo names unless `--include-private`.
 - No emojis, no em dashes, no "crushing it" register. It is going on LinkedIn.
+- Frame agents and automation as a team the person led ("shipped with", "co-written with").
+  Never shame, never imply the work was less theirs; agent counts are lower bounds.
 
 Rebuild from the edited story with `--story <out>/story.json` (timings are re-derived).
 
@@ -118,7 +125,7 @@ ffmpeg -y -i year-in-review.mp4 -i poster.jpg \
   -c:a aac -b:a 160k -movflags +faststart tmp.mp4 && mv tmp.mp4 year-in-review.mp4
 ```
 
-**Gate:** `year-in-review.mp4` is H.264, 1080x1350, under 50 MB, 25-60 s; `poster.jpg` exists.
+**Gate:** `year-in-review.mp4` is H.264, 1080x1350, under 50 MB, 25-60 s (build caps at 60); `poster.jpg` exists.
 
 Write `<out>/share-copy.txt`: two or three plain sentences in the user's voice, built from the
 strongest true facts (the archetype, one number, one project). No hashtag wall; at most two.
@@ -134,5 +141,7 @@ Tell the user where the video, poster and share copy are, and one line on what t
 - **Identity over inventory.** The film ends on who they were (archetype), not on a total.
 - **Honest.** Automation is named, private names are hidden, partial years say "so far".
 - **Readable muted.** Every beat makes sense with the sound off.
+- **Git, not GitHub.** Typed prompts, hash labels, diff hunks and trailers; no logos, no
+  GitHub greens or UI chrome.
 - **Original look.** The ledger identity in [references/story.md](references/story.md); do not
   restyle it into Wrapped or Unwrapped.

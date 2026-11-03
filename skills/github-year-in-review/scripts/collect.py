@@ -72,7 +72,7 @@ query($q:String!,$after:String){
     issueCount
     pageInfo{hasNextPage endCursor}
     nodes{... on PullRequest{
-      title number createdAt mergedAt merged additions deletions changedFiles url
+      title number createdAt mergedAt merged additions deletions changedFiles url headRefName
       repository{nameWithOwner isPrivate owner{login} stargazerCount}
     }}
   }
@@ -84,7 +84,8 @@ query($login:String!,$after:String){
     repositories(first:100,after:$after,ownerAffiliations:OWNER,orderBy:{field:CREATED_AT,direction:DESC}){
       pageInfo{hasNextPage endCursor}
       nodes{nameWithOwner name createdAt isPrivate isFork stargazerCount forkCount description
-        primaryLanguage{name color}}
+        primaryLanguage{name color}
+        releases(first:50,orderBy:{field:CREATED_AT,direction:DESC}){nodes{createdAt tagName isDraft}}}
     }
   }
 }"""
@@ -111,6 +112,162 @@ query($owner:String!,$name:String!,$after:String){
     }
   }
 }"""
+
+
+def gh_rest(path: str, **params) -> dict:
+    args = ["gh", "api", "-X", "GET", path]
+    for key, value in params.items():
+        args += ["-f", f"{key}={value}"]
+    proc = subprocess.run(args, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip()[:300])
+    return json.loads(proc.stdout)
+
+
+# Coding agents leave a signature in the commit: a Co-authored-by trailer, a "Generated with"
+# footer, a bot author, or a message prefix. Only these marks count; a commit that merely
+# mentions an agent ("fix the codex runner") is not agent work, and an unmarked commit is
+# counted as the person's own, so every agent number is a lower bound.
+AGENT_SIGNATURES: list[tuple[str, re.Pattern]] = [
+    ("Claude", re.compile(r"^co-authored-by:\s*claude\b|generated with \[?claude code|noreply@anthropic\.com", re.I | re.M)),
+    ("Copilot", re.compile(r"^co-authored-by:\s*copilot\b|copilot-swe-agent|\+copilot@users\.noreply\.github\.com", re.I | re.M)),
+    ("Codex", re.compile(r"^co-authored-by:\s*(?:openai\s+)?codex\b|chatgpt-codex-connector|codex@openai\.com", re.I | re.M)),
+    ("Cursor", re.compile(r"cursoragent@cursor\.com|^co-authored-by:\s*cursor\b", re.I | re.M)),
+    ("Devin", re.compile(r"devin-ai-integration|^co-authored-by:\s*devin\b", re.I | re.M)),
+    ("Aider", re.compile(r"\Aaider:|^co-authored-by:\s*aider\b", re.I | re.M)),
+    ("Jules", re.compile(r"google-labs-jules|^co-authored-by:\s*jules\b", re.I | re.M)),
+    ("Gemini", re.compile(r"^co-authored-by:\s*gemini\b|gemini-code-assist", re.I | re.M)),
+    ("Amp", re.compile(r"amp@ampcode\.com|^amp-thread(?:-id)?:", re.I | re.M)),
+    ("OpenHands", re.compile(r"openhands@all-hands\.dev", re.I | re.M)),
+]
+AGENT_LOGINS = {"copilot-swe-agent": "Copilot", "copilot": "Copilot", "devin-ai-integration": "Devin",
+                "google-labs-jules": "Jules", "chatgpt-codex-connector": "Codex", "cursor": "Cursor",
+                "claude": "Claude"}
+# Bots that are not agents: dependency updaters and CI. Neither the person nor an agent.
+PLAIN_BOTS = re.compile(r"dependabot|renovate|github-actions|pre-commit-ci|greenkeeper|snyk-bot|mergify", re.I)
+MODEL_RE = re.compile(r"^co-authored-by:\s*(claude[^<\n]*?|copilot[^<\n]*?|codex[^<\n]*?|gemini[^<\n]*?)\s*<", re.I | re.M)
+# PRs: an agent opened it (bot author) or the body carries the agent's footer.
+AGENT_PR_QUERIES = [
+    ("Claude Code", '"Generated with Claude Code" in:body'),
+    ("Codex", '"chatgpt.com/codex" in:body'),
+    ("Copilot coding agent", "author:app/copilot-swe-agent"),
+    ("Devin", "author:app/devin-ai-integration"),
+    ("Jules", "author:app/google-labs-jules"),
+    ("Cursor", '"cursor.com/agents" in:body'),
+]
+
+
+# Agent branches: the coding agents push to their own prefix (claude/fix-x, codex/add-y).
+AGENT_BRANCHES = {"claude": "Claude Code", "codex": "Codex", "copilot": "Copilot coding agent",
+                  "cursor": "Cursor", "devin": "Devin", "jules": "Jules"}
+
+
+def classify_branch(ref: str | None) -> str | None:
+    """The agent a PR head branch belongs to, from its prefix, else None."""
+    head = (ref or "").lower().split("/", 1)
+    return AGENT_BRANCHES.get(head[0]) if len(head) == 2 and head[1] else None
+
+
+def merge_agent_prs(searched: dict, prs: list[dict]) -> list[tuple[str, int]]:
+    """Agent PR counts per agent: the larger of the search count and the branch-prefix count.
+
+    The two signals overlap (a claude/ branch usually carries the Claude Code footer too), so
+    taking the max per agent never double counts; the result is a lower bound.
+    """
+    by_branch = collections.Counter(a for a in (classify_branch(p.get("headRefName")) for p in prs) if a)
+    out = {k: max(searched.get(k, 0), by_branch.get(k, 0)) for k in set(searched) | set(by_branch)}
+    return sorted(((k, v) for k, v in out.items() if v), key=lambda kv: (-kv[1], kv[0]))
+
+
+def classify_commit(message: str, author_login: str | None = None, author_email: str | None = None) -> dict:
+    """Which agents signed a commit, whether a plain bot made it, and any model names in trailers."""
+    login = (author_login or "").lower().removesuffix("[bot]")
+    agents = {name for name, rx in AGENT_SIGNATURES if rx.search(message or "")}
+    if login in AGENT_LOGINS:
+        agents.add(AGENT_LOGINS[login])
+    if (author_email or "").lower() == "cursoragent@cursor.com":
+        agents.add("Cursor")
+    bot = None
+    if not agents and (PLAIN_BOTS.search(login) or login.endswith("bot") and "[bot]" in (author_login or "")):
+        bot = login
+    models = [" ".join(m.split()) for m in MODEL_RE.findall(message or "")]
+    return {"agents": sorted(agents), "bot": bot, "models": models}
+
+
+def month_ranges(start: dt.date, end: dt.date) -> list[tuple[dt.date, dt.date]]:
+    out = []
+    d = start
+    while d <= end:
+        nxt = dt.date(d.year + (d.month == 12), d.month % 12 + 1, 1)
+        out.append((d, min(end, nxt - dt.timedelta(days=1))))
+        d = nxt
+    return out
+
+
+def agent_sample(user: str, start: dt.date, end: dt.date, exclude: list[str], per_month: int = 100) -> dict:
+    """Month-stratified commit search: up to `per_month` commits a month with full messages.
+
+    The search API returns message bodies (trailers included) across every repo the token can
+    see, so this works for anyone with gh auth. Automation repos are excluded up front.
+    Shares are weighted by each month's total so a busy month counts for what it was.
+    """
+    skip = " ".join(f"-repo:{r}" for r in exclude)
+    months, by_agent, models, first_seen = [], collections.Counter(), collections.Counter(), None
+    total = sampled = agent_hits = bot_hits = 0
+    est_agent = est_by = 0.0
+    est_by_agent = collections.Counter()
+    for a, b in month_ranges(start, end):
+        q = f"author:{user} author-date:{a}..{b} {skip}".strip()
+        try:
+            page = gh_rest("search/commits", q=q, per_page=per_month, sort="author-date", order="desc")
+        except RuntimeError as exc:  # rate limit or a search outage: record and carry on
+            months.append({"month": a.month, "total": None, "sampled": 0, "agent": 0, "error": str(exc)[:120]})
+            continue
+        items = page.get("items", [])
+        n_total = page.get("total_count", 0)
+        hits = 0
+        month_by = collections.Counter()
+        for it in items:
+            c = classify_commit(it["commit"]["message"], (it.get("author") or {}).get("login"),
+                                it["commit"]["author"].get("email"))
+            if c["agents"]:
+                hits += 1
+                for ag in c["agents"]:
+                    month_by[ag] += 1
+                models.update(c["models"])
+                when = it["commit"]["author"]["date"][:10]
+                first_seen = min(first_seen or when, when)
+            elif c["bot"]:
+                bot_hits += 1
+        k = len(items)
+        total += n_total
+        sampled += k
+        agent_hits += hits
+        by_agent.update(month_by)
+        if k:
+            est_agent += n_total * hits / k
+            for ag, v in month_by.items():
+                est_by_agent[ag] += n_total * v / k
+        months.append({"month": a.month, "total": n_total, "sampled": k, "agent": hits})
+    share = est_agent / total if total else 0.0
+    return {
+        "method": ("REST commit search author:<user>, one page of up to "
+                   f"{per_month} per month, automation repos excluded; agent = signature in the "
+                   "commit (Co-authored-by trailer, Generated-with footer, agent bot author)"),
+        "excluded_repos": exclude,
+        "commits_total": total,
+        "sampled": sampled,
+        "coverage": round(sampled / total, 4) if total else 0,
+        "agent_commits_sampled": agent_hits,
+        "plain_bot_commits_sampled": bot_hits,
+        "agent_share": round(share, 4),
+        "agent_commits_est": round(est_agent),
+        "by_agent": [[ag, round(v)] for ag, v in est_by_agent.most_common()],
+        "by_agent_sampled": by_agent.most_common(),
+        "models": models.most_common(5),
+        "by_month": months,
+        "first_seen": first_seen,
+    }
 
 
 def public_name(repo: dict, include_private: bool) -> str:
@@ -248,7 +405,9 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
     merged = [p for p in prs if p["merged"]]
     external = [p for p in merged if p["repository"]["owner"]["login"].lower() != user.lower()]
     ext_repos = collections.Counter(public_name(p["repository"], include_private) for p in external)
-    biggest = max(merged, key=lambda p: p["additions"] + p["deletions"], default=None)
+    # Biggest merged PR by lines changed; a nameable one first, so the film can show its title.
+    nameable = [p for p in merged if include_private or not p["repository"]["isPrivate"]]
+    biggest = max(nameable or merged, key=lambda p: p["additions"] + p["deletions"], default=None)
     lines_added = sum(p["additions"] for p in merged)
     lines_removed = sum(p["deletions"] for p in merged)
     pr_by_repo = collections.Counter(public_name(p["repository"], include_private) for p in merged)
@@ -256,6 +415,7 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
     external_public = collections.Counter(
         p["repository"]["nameWithOwner"] for p in external if not p["repository"]["isPrivate"]
     )
+    ext_stars = {p["repository"]["nameWithOwner"]: p["repository"]["stargazerCount"] for p in external}
     biggest_external = max([p for p in external if not p["repository"]["isPrivate"] or include_private], key=lambda p: p["repository"]["stargazerCount"], default=None)
 
     # Owned repositories: which were born this year.
@@ -301,6 +461,7 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
     late = None  # latest-night commit (by local clock between 00:00 and 04:00, latest wins)
     first_commit = None
     automated = []
+    automated_full = []  # real nameWithOwner, used only to exclude them from searches
     for r in repos[:HISTORY_REPOS]:
         after = None
         commits = []
@@ -325,6 +486,7 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
         share = template_share(commits)
         if len(commits) >= 50 and share >= 0.6:
             automated.append({"name": r["name"], "commits": r["commits"], "template_share": round(share, 3)})
+            automated_full.append(f"{r['_owner']}/{r['_name']}")
             continue
         for c in commits:
             when = dt.datetime.fromisoformat(c["committedDate"].replace("Z", "+00:00")).astimezone(zone)
@@ -348,12 +510,40 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
 
     years_on_github = year - int(prof["createdAt"][:4])
 
+    # Agents: commit signatures from a month-stratified search sample, and PRs agents opened
+    # or co-wrote. Optional in the film: the beat only shows when agents were actually there.
+    agents = agent_sample(user, start.date(), end.date(), automated_full)
+    pr_range = f"created:{start.date()}..{end.date()}"
+    agent_prs = {}
+    for name, sig in AGENT_PR_QUERIES:
+        scope = f"type:pr user:{user} {sig}" if sig.startswith("author:app/") else f"author:{user} type:pr {sig}"
+        try:
+            k = search_count(f"{scope} {pr_range}")
+        except SystemExit:
+            k = 0
+        if k:
+            agent_prs[name] = agent_prs.get(name, 0) + k
+    agents["prs"] = merge_agent_prs(agent_prs, prs)
+    agents["prs_total"] = sum(k for _, k in agents["prs"])
+
+    # Releases published this year on owned repos (private ones counted, never named).
+    releases = []
+    for r in owned:
+        tags = [x for x in (r.get("releases") or {}).get("nodes", []) if x["createdAt"][:4] == str(year) and not x["isDraft"]]
+        if tags:
+            named = include_private or not r["isPrivate"]
+            releases.append({"repo": r["name"] if named else None, "count": len(tags),
+                             "first": tags[-1]["tagName"] if named else None,
+                             "latest": tags[0]["tagName"] if named else None,
+                             "latest_date": tags[0]["createdAt"][:10]})
+    releases.sort(key=lambda x: -x["count"])
+
     for r in repos:
         for k in [k for k in r if k.startswith("_")]:
             r.pop(k)
 
     out = {
-        "schema": 1,
+        "schema": 2,
         "user": {
             "login": prof["login"],
             "name": prof["name"] or prof["login"],
@@ -418,6 +608,8 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
                     "additions": biggest["additions"],
                     "deletions": biggest["deletions"],
                     "files": biggest["changedFiles"],
+                    "number": biggest["number"] if (include_private or not biggest["repository"]["isPrivate"]) else None,
+                    "private": biggest["repository"]["isPrivate"],
                 }
                 if biggest
                 else None
@@ -426,6 +618,7 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
             "external_merged": len(external),
             "external_repos": ext_repos.most_common(6),
             "external_public": external_public.most_common(6),
+            "external_public_stars": {k: ext_stars[k] for k, _ in external_public.most_common(6)},
             "most_starred_external": (
                 {
                     "repo": public_name(biggest_external["repository"], include_private),
@@ -452,6 +645,8 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
             "by_repo": stars_gained.most_common(5),
             "total_owned": sum(r["stargazerCount"] for r in owned if not r["isPrivate"]),
         },
+        "agents": agents,
+        "releases": {"total": sum(x["count"] for x in releases), "repos": releases[:6]},
         "commit_verbs": verbs.most_common(8),
         "first_commit": first_commit,
     }

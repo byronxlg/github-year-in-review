@@ -104,3 +104,16 @@ badges and tiers, language percentages to two decimals.
 [clipchamp]: https://clipchamp.com/en/blog/the-ultimate-guide-to-linkedin-videos/
 [smt]: https://www.socialmediatoday.com/news/linkedin-video-posting-tips-specs-2025/746552/
 [compresto]: https://compresto.app/blog/compress-video-for-linkedin
+
+## v2: topical and shareable (2026-11)
+
+- **Agents are the 2026 story.** Coding agents sign their work in public metadata: Claude Code
+  adds a `Co-Authored-By: Claude ...` trailer and a "Generated with Claude Code" footer, Copilot's
+  coding agent opens PRs as `copilot-swe-agent` on `copilot/` branches, Codex and Claude web use
+  `codex/` and `claude/` branches, Aider prefixes `aider:`, Cursor signs as `cursoragent@cursor.com`.
+  Counting these is cheap and honest (a lower bound), and "shipped with a team of agents" is a
+  line people want to post. Shame framing ("only 43% was you") is avoided by design.
+- **Flattering, credible extras**: releases tagged (users got something), the biggest change as a
+  diff stat, open source merged into other people's projects. Each is an outcome, not activity.
+- **Look**: developers recognise the terminal and the diff, not a brand. Typed commands, hash
+  labels and `+`/`-` hunks borrow that recognition without copying GitHub's UI.
