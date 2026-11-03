@@ -27,21 +27,28 @@ ASSETS = SKILL / "assets"
 CTA = "Make yours: github.com/byronxlg/github-year-in-review"
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
           "October", "November", "December"]
-MIN_DURATION = {"hook": 3.4, "shape": 5.8, "run": 4.4, "clock": 4.8, "work": 5.8, "agents": 6.4,
-                "ship": 4.8, "diff": 5.0, "releases": 4.8, "started": 5.2, "oss": 4.8, "surprise": 4.8,
-                "identity": 4.6, "close": 4.8}
-MAX_TOTAL = 60.0  # LinkedIn sweet spot is under a minute
+# Rough length per beat, used only to decide which beats fit; real timing comes from beat_timing().
+EST_DURATION = {"hook": 5.3, "shape": 6.0, "run": 5.2, "clock": 5.6, "work": 5.8, "agents": 6.0,
+                "ship": 5.5, "diff": 5.4, "releases": 5.6, "started": 5.6, "oss": 5.6, "surprise": 5.0,
+                "identity": 4.7, "close": 5.6}
+# Pacing (seconds). One thing moves at a time: the hero lands, then the supporting group, then
+# every beat holds still for HOLD before a short fade. See docs/design.md, v3.
+LEAD, GAP, EXIT = 0.15, 0.3, 0.4
+HERO = {"hook": 1.4, "shape": 1.6, "clock": 1.3, "work": 1.3, "identity": 0.7, "close": 0.8}
+SUPPORT_RISE, STAGGER = 0.55, 0.15
+HOLD = {"default": 2.6, "close": 3.0}
+MAX_TOTAL = 58.0  # LinkedIn: under a minute, with fewer, calmer beats
 # Beats dropped first when the film runs long; the last ones go last. hook, identity and close
 # are never dropped. The optional beats that flatter (agents, diff, releases) outlast rhythm detail.
-DROP_ORDER = ["surprise", "oss", "clock", "run", "started", "releases", "diff", "ship", "agents", "work", "shape"]
-# The terminal line typed at the top of each beat. Decorative, but every one is a real command
-# (or a real pipeline) that would answer the beat's question for a single repo.
+DROP_ORDER = ["surprise", "oss", "diff", "started", "run", "clock", "releases", "ship", "agents", "work", "shape"]
+# A real command (or pipeline) that would answer each beat's question for a single repo. Kept in
+# story.json; only the hook's is drawn (v3: one prompt, static, so it never moves with a stat).
 COMMANDS = {
     "hook": "year-in-review --user {user} --year {year}",
     "shape": "git log --since={year}-01-01 --format=%as | uniq -c",
     "run": "git log --format=%as | uniq | longest-run",
     "clock": "git log --date=format:%H --format=%ad | uniq -c",
-    "work": "git shortlog -sn --since={year}-01-01",
+    "work": "git shortlog -sn",
     "agents": "git log --format='%(trailers:key=Co-authored-by)'",
     "ship": "gh pr list --author @me --state merged",
     "diff": "git diff --shortstat",
@@ -344,7 +351,7 @@ def make_story(d: dict, cta: str) -> dict:
 
 def fit_length(beats: list[dict], max_total: float = MAX_TOTAL) -> None:
     """Drop the least important beats until the film fits, then number and time them."""
-    while sum(MIN_DURATION[b["id"]] for b in beats) > max_total:
+    while sum(EST_DURATION[b["id"]] for b in beats) > max_total:
         ids = [b["id"] for b in beats]
         victim = next((x for x in DROP_ORDER if x in ids), None)
         if victim is None:
@@ -352,7 +359,7 @@ def fit_length(beats: list[dict], max_total: float = MAX_TOTAL) -> None:
         beats[:] = [b for b in beats if b["id"] != victim]
     for i, b in enumerate(beats):
         b["index"] = i + 1
-        b["duration"] = MIN_DURATION[b["id"]]
+        b["duration"] = EST_DURATION[b["id"]]
 
 
 def snap_times(beats: list[dict], beat_grid: list[float]) -> None:
@@ -362,7 +369,7 @@ def snap_times(beats: list[dict], beat_grid: list[float]) -> None:
         start = t
         if beat_grid and start > 0:
             near = min(beat_grid, key=lambda x: abs(x - start))
-            if abs(near - start) < 0.3:
+            if 0 <= near - start < 0.3:  # later only: never cut the previous hold
                 start = near
         b["start"] = round(start, 3)
         t = start + b["duration"]
@@ -416,58 +423,58 @@ def short_hash(*parts: object) -> str:
     return hashlib.sha1("/".join(map(str, parts)).encode()).hexdigest()[:7]
 
 
-def diff_lines(lines: list[tuple[str, str]], cls: str = "hunk", at: float = 1.0, step: float = 0.35) -> str:
-    """A unified-diff style block: ('+'|'-'|'@'|' ', text) per line."""
+def diff_lines(lines: list[tuple[str, str]], cls: str = "hunk") -> str:
+    """A unified-diff style block: ('+'|'-'|'@'|' ', text) per line. Lines are supporting motion."""
     kind = {"+": "add", "-": "del", "@": "hdr", " ": "ctx"}
     out = []
-    for k, (sign, text) in enumerate(lines):
+    for sign, text in lines:
         mark = "" if sign == "@" else f'<span class="sg">{E(sign)}</span>'
-        out.append(f'<div class="dl {kind[sign]} rise" data-at="{at + k * step:.2f}">{mark}{text}</div>')
+        out.append(f'<div class="dl {kind[sign]} rise" data-p="2">{mark}{text}</div>')
     return f'<div class="{cls}">{"".join(out)}</div>'
 
 
 def scene_html(b: dict, story: dict, total: int) -> str:
+    """One beat as HTML. Motion is marked, not timed: data-p="1" is the hero (lands first),
+    data-p="2" is the supporting group (enters after the hero settles). beat_timing() turns
+    the marks into times so the phases never overlap."""
     i, sid = b["index"], b["id"]
-    cmd = b.get("cmd") or COMMANDS[sid].format(user=story["user"], year=story["year"])
-    head = (f'<div class="term"><span class="ps">~ $</span><span class="cmd" data-cmd="{E(cmd)}">'
-            f'{E(cmd) if sid == "hook" else ""}</span><i class="cur"></i></div>'
-            f'<div class="label rise" data-at="0.05"><span class="idx">{short_hash(story["user"], story["year"], sid)}</span>'
+    head = (f'<div class="label"><span class="idx">{short_hash(story["user"], story["year"], sid)}</span>'
             f'<span class="ct">{i:02d}/{total:02d}</span><span>{E(b["label"])}</span></div>')
+    if sid == "hook":  # the one prompt in the film: already run, so frame 0 is the poster
+        cmd = b.get("cmd") or COMMANDS[sid].format(user=story["user"], year=story["year"])
+        head = f'<div class="term"><span class="ps">~ $</span><span class="cmd">{E(cmd)}</span></div>' + head
+    P1, P2 = 'data-p="1"', 'data-p="2"'
     body = ""
     if sid == "hook":
         num = n(b["number"])
         body = f"""
       <div class="stack hook">
-        <div class="name rise" data-at="0.15">{E(b['name'])}</div>
-        <div class="big signal count" data-to="{b['number']}" data-from="{round(b['number'] * 0.62)}" data-at="0" data-dur="1.6" style="font-size:{big_size(num, 540)}px">{num}</div>
-        <div class="unit rise" data-at="0.3">{E(b['unit'])}</div>
-        <div class="sub rise" data-at="0.55">{E(b['line'])}</div>
+        <div class="name">{E(b['name'])}</div>
+        <div class="big signal count" {P1} data-to="{b['number']}" data-from="{round(b['number'] * 0.62)}" style="font-size:{big_size(num, 540)}px">{num}</div>
+        <div class="unit">{E(b['unit'])}</div>
+        <div class="sub rise" {P2}>{E(b['line'])}</div>
       </div>"""
     elif sid == "shape":
         body = f"""
       <div class="stack">
-        <div class="title rise" data-at="0.1">{E(b['title'])}</div>
+        <div class="title rise" {P1}>{E(b['title'])}</div>
         {year_grid(story, b["peak_month"])}
-        <div class="caption rise" data-at="2.2">{E(b['caption'])}</div>
+        <div class="caption rise" {P2}>{E(b['caption'])}</div>
       </div>"""
     elif sid == "agents":
         rows = "".join(
-            f'<div class="tr rise" data-at="{1.3 + k * 0.35:.2f}"><span class="tk">Co-authored-by:</span>'
+            f'<div class="tr rise" {P2}><span class="tk">Co-authored-by:</span>'
             f'<b>{E(x["trailer"])}</b><i class="tb"><i class="bar tbar" style="width:{max(3, 100 * x["share"]):.1f}%"></i></i>'
             f'<em>{pct(x["share"])}</em></div>'
-            for k, x in enumerate(b["rows"]))
-        notes = ""
-        if b.get("sub"):
-            notes += f'<div class="sub ink rise" data-at="2.3">{E(b["sub"])}</div>'
-        if b.get("auto"):
-            notes += f'<div class="note rise" data-at="2.8">{E(b["auto"])}</div>'
+            for x in b["rows"][:3])
+        note = b.get("prs") or b.get("auto") or b.get("sub")
         num = f'{b["number"]}%'
         body = f"""
       <div class="stack agents">
-        <div class="big signal count pct" data-to="{b['number']}" data-from="0" data-at="0.15" data-dur="1.1" style="font-size:{big_size(num, 320)}px">{num}</div>
-        <div class="unit rise" data-at="0.35">{E(b['unit'])}</div>
+        <div class="big signal count pct" {P1} data-to="{b['number']}" data-from="0" style="font-size:{big_size(num, 320)}px">{num}</div>
+        <div class="unit rise" {P1}>{E(b['unit'])}</div>
         <div class="trailers">{rows}</div>
-        {notes}
+        {f'<div class="sub ink rise" {P2}>{E(note)}</div>' if note else ''}
       </div>"""
     elif sid == "diff":
         ref = f'{b["repo"]} #{b["pr"]}' if b.get("pr") else b["repo"]
@@ -475,56 +482,40 @@ def scene_html(b: dict, story: dict, total: int) -> str:
         tot = adds + dels or 1
         n_add = max(1, round(40 * adds / tot)) if adds else 0
         stat = ('<span class="add">' + "+" * n_add + '</span><span class="del">' + "-" * max(0 if not dels else 1, 40 - n_add) + "</span>")
-        hunk = []
-        if b.get("total_added"):
-            pre = "at least " if b.get("at_least") else ""
-            hunk = [("@", f"@@ every merged PR this year @@"),
-                    ("+", f"{pre}{n(b['total_added'])} lines added"),
-                    ("-", f"{n(b['total_removed'])} lines removed")]
         body = f"""
       <div class="stack diff">
-        <div class="ref rise" data-at="0.1">{E(ref)} <span>{plural(b['files'], 'file')} changed</span></div>
-        <div class="title rise" data-at="0.2">{E(b['title'])}</div>
-        <div class="dnum"><b class="add big count" data-to="{adds}" data-from="0" data-at="0.5" data-dur="1.1" data-sign="+">+{n(adds)}</b><b class="del big rise" data-at="1.2">-{n(dels)}</b></div>
-        <div class="dstat rise" data-at="1.4">{stat}</div>
-        {diff_lines(hunk, at=2.0) if hunk else ""}
+        <div class="ref">{E(ref)} <span>{plural(b['files'], 'file')} changed</span></div>
+        <div class="title">{E(b['title'])}</div>
+        <div class="dnum"><b class="add big count" {P1} data-to="{adds}" data-from="0" data-sign="+">+{n(adds)}</b><b class="del big rise" {P2}>-{n(dels)}</b></div>
+        <div class="dstat rise" {P2}>{stat}</div>
       </div>"""
     elif sid in ("run", "ship", "surprise", "started", "releases", "oss"):
         num = n(b["number"])
         extra = ""
-        if sid == "run":
-            extra = '<div class="facts">' + "".join(
-                f'<div class="fact rise" data-at="{1.6 + k * 0.5}"><b>{E(v)}</b><span>{E(lbl)}</span></div>'
-                for k, (v, lbl) in enumerate(b["facts"])) + "</div>"
         if sid == "ship":
-            lines = [("+", E(x.strip())) for x in re.split(r"(?<=\.)\s+", b["sub"]) if x.strip()]
-            if b.get("ext"):
-                lines.append(("+", E(b["ext"])))
-            extra = diff_lines(lines, at=0.9)
+            first = [x.strip() for x in re.split(r"(?<=\.)\s+", b["sub"]) if x.strip()][:1]
+            lines = [("+", E(x)) for x in first + ([b["ext"]] if b.get("ext") else [])]
+            extra = diff_lines(lines)
         if sid in ("releases", "oss"):
             if sid == "releases":
                 rows = [(" ", f'<b class="tag">{E(x["tag"])}</b><span>{E(x["repo"])}</span>'
-                         f'<em>{plural(x["count"], "release")}</em>') for x in b["rows"]]
+                         f'<em>{plural(x["count"], "release")}</em>') for x in b["rows"][:2]]
             else:
-                rows = [("+", f'<b>{E(x["name"])}</b><em>{plural(x["stars"], "star")}</em>') for x in b["rows"]]
-            extra = diff_lines(rows, cls="hunk rows", at=1.0)
+                rows = [("+", f'<b>{E(x["name"])}</b><em>{plural(x["stars"], "star")}</em>') for x in b["rows"][:3]]
+            extra = diff_lines(rows, cls="hunk rows")
         if sid == "started":
             extra = '<div class="list">' + "".join(
-                f'<div class="li rise" data-at="{1.3 + k * 0.45}"><div class="lin"><b><i class="plus">+</i>{E(x["name"])}</b>'
+                f'<div class="li rise" {P2}><div class="lin"><b><i class="plus">+</i>{E(x["name"])}</b>'
                 f'<span>{E(x["meta"])}</span></div><div class="lid">{E(x["desc"])}</div></div>'
-                for k, x in enumerate(b["rows"])) + "</div>"
-        sub = (f'<div class="sub rise" data-at="{0.9 if sid != "started" else 2.8}">{E(b["sub"])}</div>'
-               if b.get("sub") and sid != "ship" else "")
-        if sid == "releases":
-            sub = sub.replace('data-at="0.9"', 'data-at="1.6"')
+                for x in b["rows"][:2]) + "</div>"
+        sub = f'<div class="sub rise" {P2}>{E(b["sub"])}</div>' if b.get("sub") and sid != "ship" else ""
         size = big_size(num, 340 if sid in ("started", "releases", "oss") else 500)
         body = f"""
       <div class="stack {sid}">
-        <div class="big signal count" data-to="{b['number']}" data-from="0" data-at="0.15" data-dur="1.1" style="font-size:{size}px">{num}</div>
-        <div class="unit rise" data-at="0.35">{E(b['unit'])}</div>
-        {sub if sid != 'started' else ''}
+        <div class="big signal count" {P1} data-to="{b['number']}" data-from="0" style="font-size:{size}px">{num}</div>
+        <div class="unit rise" {P1}>{E(b['unit'])}</div>
         {extra}
-        {sub if sid == 'started' else ''}
+        {sub}
       </div>"""
     elif sid == "clock":
         hours = b["hours"]
@@ -535,55 +526,84 @@ def scene_html(b: dict, story: dict, total: int) -> str:
         ticks = "".join(f'<span style="left:{h / 24 * 100:.3f}%">{h:02d}</span>' for h in (0, 6, 12, 18))
         body = f"""
       <div class="stack">
-        <div class="big signal rise" data-at="0.15" style="font-size:240px">{E(b['peak_label'])}</div>
-        <div class="unit rise" data-at="0.35">is when you commit most</div>
+        <div class="big signal rise" {P1} style="font-size:240px">{E(b['peak_label'])}</div>
+        <div class="unit rise" {P1}>is when you commit most</div>
         <div class="hours">{bars}</div>
         <div class="ticks">{ticks}</div>
-        <div class="sub rise" data-at="2.0">{E(b['sub'])}</div>
+        <div class="sub rise" {P2}>{E(b['sub'])}</div>
       </div>"""
     elif sid == "work":
-        mx = max(x["commits"] for x in b["rows"]) or 1
+        rows = b["rows"][:3]
+        mx = max(x["commits"] for x in rows) or 1
         rows = "".join(
-            f'<div class="wr rise" data-at="{0.5 + k * 0.4}"><div class="wl"><b>{E(x["name"])}</b>'
+            f'<div class="wr rise" {P1}><div class="wl"><b>{E(x["name"])}</b>'
             f'<span>{n(x["commits"])} commits</span></div>'
             f'<div class="track"><i class="bar wbar" style="width:{max(2, 100 * x["commits"] / mx):.1f}%;background:{"#FF5B24" if k == 0 else "#5A5047"}"></i></div>'
             f'<div class="lang"><i style="background:{E(x["color"])}"></i>{E(x["language"] or "")}</div></div>'
-            for k, x in enumerate(b["rows"]))
-        lead = (f'<div class="quote rise" data-at="2.4"><span>{E(b["lead_name"])}:</span> {E(b["lead"])}</div>'
+            for k, x in enumerate(rows))
+        lead = (f'<div class="quote rise" {P2}><span>{E(b["lead_name"])}:</span> {E(b["lead"])}</div>'
                 if b["lead"] else "")
         body = f"""
       <div class="stack">
-        <div class="title rise" data-at="0.1">The projects that took the time.</div>
+        <div class="title rise" {P1}>The projects that took the time.</div>
         <div class="work">{rows}</div>
         {lead}
       </div>"""
     elif sid == "identity":
         body = f"""
       <div class="stack identity">
-        <div class="kicker rise" data-at="0.2">You were</div>
-        <div class="arch rise" data-at="0.45">{E(b['name'])}</div>
-        <div class="sub rise" data-at="1.4">{E(b['reason'])}</div>
+        <div class="kicker rise" {P1}>You were</div>
+        <div class="arch rise" {P1}>{E(b['name'])}</div>
+        <div class="sub rise" {P2}>{E(b['reason'])}</div>
       </div>"""
     elif sid == "close":
         body = f"""
       <div class="stack close">
         {year_grid(story, None, "grid mini")}
-        <div class="handle rise" data-at="0.5">{E(b['handle'])}</div>
-        <div class="unit rise" data-at="0.4">{E(b['year'])}, in review.</div>
-        <div class="cta rise" data-at="1.2"><span>{E(b['cta'].split(': ', 1)[0])}</span>{E(b['cta'].split(': ', 1)[-1])}</div>
+        <div class="handle rise" {P1}>{E(b['handle'])}</div>
+        <div class="unit rise" {P1}>{E(b['year'])}, in review.</div>
+        <div class="cta rise" {P2}><span>{E(b['cta'].split(': ', 1)[0])}</span>{E(b['cta'].split(': ', 1)[-1])}</div>
       </div>"""
-    return (f'<section id="s-{sid}" class="clip scene" data-start="{b["start"]}" data-duration="{b["duration"]}" '
-            f'data-track-index="1"><div class="inner">{head}{body}</div></section>')
+    return f'<div class="inner">{head}{body}</div>'
+
+
+def beat_timing(sid: str, html_: str) -> dict:
+    """Times, relative to the scene start, for the phases of one beat. Never two phases at once:
+    the hero lands (t1), then the supporting group (t2), then the beat holds still until the cut."""
+    t1 = LEAD if sid != "hook" else 0.0
+    hero = HERO.get(sid, 1.2)
+    t2 = t1 + hero + GAP
+    n2 = html_.count('data-p="2"')
+    settle = t2 + SUPPORT_RISE + STAGGER * (n2 - 1) if n2 else t1 + hero
+    hold = HOLD.get(sid, HOLD["default"])
+    return {"t1": round(t1, 3), "t2": round(t2, 3), "settle": round(settle, 3), "hold": hold,
+            "duration": round(settle + hold + EXIT, 3)}
+
+
+def plan_scenes(story: dict) -> list[dict]:
+    """Each beat with its html and phase timing."""
+    beats = story["beats"]
+    out = []
+    for b in beats:
+        h = scene_html(b, story, len(beats))
+        out.append({"key": b["id"], "id": b["id"], "html": h, "beat": b, **beat_timing(b["id"], h)})
+    return out
 
 
 def build(story: dict, out: Path, music: Path | None, cues: Path | None) -> Path:
     beats = story["beats"]
+    for i, b in enumerate(beats):
+        b["index"] = i + 1
+        b.setdefault("cmd", COMMANDS[b["id"]].format(user=story["user"], year=story["year"]))
+    scenes = plan_scenes(story)
     grid = []
     if cues and cues.exists():
         grid = json.loads(cues.read_text()).get("beats", [])
         grid = [x["time"] if isinstance(x, dict) else x for x in grid]
-    snap_times(beats, grid)
-    total_dur = round(beats[-1]["start"] + beats[-1]["duration"], 3)
+    snap_times(scenes, grid)
+    for s in scenes:
+        s["beat"]["start"], s["beat"]["duration"] = s["start"], s["duration"]
+    total_dur = round(scenes[-1]["start"] + scenes[-1]["duration"], 3)
     comp = out / "composition"
     (comp / "assets" / "fonts").mkdir(parents=True, exist_ok=True)
     for f in (ASSETS / "fonts").glob("*.ttf"):
@@ -596,13 +616,18 @@ def build(story: dict, out: Path, music: Path | None, cues: Path | None) -> Path
             {"t": 0, "v": 0.5}, {"t": max(0, total_dur - 2.2), "v": 0.5}, {"t": total_dur, "v": 0}]}]}
         audio = (f'<audio id="music" src="assets/music/{E(music.name)}" data-start="0" data-duration="{total_dur}" '
                  f'data-track-index="9" data-volume="0.5" data-automation=\'{json.dumps(fade)}\'></audio>')
-    scenes = "\n    ".join(scene_html(b, story, len(beats)) for b in beats)
-    timing = [{"id": b["id"], "start": b["start"], "duration": b["duration"]} for b in beats]
+    html_scenes = "\n    ".join(
+        f'<section id="s-{s["key"]}" class="clip scene" data-start="{s["start"]}" data-duration="{s["duration"]}" '
+        f'data-track-index="1">{s["html"]}</section>' for s in scenes)
+    keys = ("t1", "t2", "start", "duration")
+    timing = [{"key": s["key"], "id": s["id"], "beat": s["beat"]["index"],
+               **{k: s[k] for k in keys}} for s in scenes]
     tpl = (ASSETS / "template.html").read_text()
     page = (tpl.replace("__DURATION__", str(total_dur))
             .replace("__HANDLE__", E("@" + story["user"]))
             .replace("__YEAR__", E(story["year_label"]))
-            .replace("<!--__SCENES__-->", scenes)
+            .replace("__BEATS__", str(len(beats)))
+            .replace("<!--__SCENES__-->", html_scenes)
             .replace("<!--__AUDIO__-->", audio)
             .replace("/*__TIMING__*/[]", json.dumps(timing)))
     (comp / "index.html").write_text(page)
@@ -621,15 +646,10 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    data = json.loads(Path(a.year_json).read_text())
     if a.story:
-        story = json.loads(Path(a.story).read_text())
-        for i, b in enumerate(story["beats"]):  # re-derive numbering and timing; copy edits stay
-            b["index"] = i + 1
-            b["duration"] = MIN_DURATION[b["id"]]
-            b.setdefault("cmd", COMMANDS[b["id"]].format(user=story["user"], year=story["year"]))
+        story = json.loads(Path(a.story).read_text())  # copy edits stay; timing is re-derived
     else:
-        story = make_story(data, a.cta)
+        story = make_story(json.loads(Path(a.year_json).read_text()), a.cta)
     page = build(story, out, Path(a.music) if a.music else None, Path(a.cues) if a.cues else None)
     total = story["beats"][-1]["start"] + story["beats"][-1]["duration"]
     print(f"{len(story['beats'])} beats, {total:.1f}s -> {page}", file=sys.stderr)
