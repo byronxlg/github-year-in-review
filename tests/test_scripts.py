@@ -1,6 +1,8 @@
 """Offline tests for the collector helpers and the story builder. No network, no gh."""
 
 import datetime as dt
+import contextlib
+import io
 import json
 import sys
 import re
@@ -655,6 +657,113 @@ class BeatGridTest(unittest.TestCase):
             self.assertEqual(build.beat_grid(None, cues), [0.4, 0.9])
 
 
+def cut_story(ids=("hook", "shape", "run", "ship", "lines", "actions", "identity", "close")):
+    known = {"hook": {"number": 7}, "run": {"number": 3}, "ship": {"number": 4, "opened": 5},
+             "lines": {"added": 1000, "removed": 10}, "actions": {"number": 9, "runs": 2}}
+    return {"user": "u", "year": 2026, "calendar": [["2026-01-01", 2], ["2026-03-01", 5]],
+            "beats": [{"id": i, "label": i.title(), **known.get(i, {})} for i in ids]}
+
+
+class TransitionSuite(unittest.TestCase):
+    def test_the_list_is_read_from_the_js_and_numbers_stay_put(self):
+        by_n = {t["n"]: t for t in build.transition_list()}
+        self.assertEqual(len(by_n), 76)
+        self.assertEqual(by_n[42]["name"], "Contribution grid, left to right")
+        self.assertEqual(by_n[69]["name"], "Merge button goes purple")
+        self.assertEqual(by_n[69]["d"], 0.95)
+        self.assertTrue(by_n[18]["aTop"])
+
+    def test_every_card_after_the_hook_has_a_pair(self):
+        ids = {c[0] for c in build.CATALOGUE}
+        self.assertEqual(set(build.PAIRS), ids - {"hook"})
+        self.assertTrue(set(build.SUITE) <= {t["n"] for t in build.transition_list()})
+
+    def test_the_listing_needs_no_year(self):
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(build.main(["--transitions"]), 0)
+            self.assertEqual(build.main(["--catalogue"]), 0)
+        self.assertIn("Merge button goes purple", printed.getvalue())
+
+    def test_cuts_are_the_cards_own_and_nothing_repeats(self):
+        cuts = build.plan_cuts(cut_story())
+        self.assertEqual([c["n"] for c in cuts], [49, 53, 69, 60, 70, 73, 57])
+        self.assertEqual(cuts[0]["from"], "hook")
+        self.assertEqual(len({c["n"] for c in cuts}), len(cuts))
+
+    def test_force_and_skip(self):
+        story = {**cut_story(), "cut_force": {"lines": 61}, "cut_skip": [49, 50]}
+        cuts = {c["to"]: c for c in build.plan_cuts(story)}
+        self.assertEqual((cuts["lines"]["n"], cuts["lines"]["why"]), (61, "--cut"))
+        self.assertEqual((cuts["shape"]["n"], cuts["shape"]["why"]), (42, "neutral"))
+
+    def test_a_used_pair_falls_to_the_next(self):
+        story = {**cut_story(), "cut_force": {"run": 49}}
+        self.assertEqual(build.plan_cuts(story)[0]["n"], 50)
+
+    def test_neutrals_cover_a_film_past_their_number(self):
+        story = {**cut_story(("hook",) + ("run",) * 9), "cut_skip": [53]}
+        self.assertEqual(len(build.plan_cuts(story)), 9)
+
+    def test_a_transition_without_its_data_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "languages beat"):
+            build.plan_cuts({**cut_story(), "cut_force": {"run": 64}})
+        with self.assertRaisesRegex(ValueError, "no transition 99"):
+            build.plan_cuts({**cut_story(), "cut_force": {"run": 99}})
+
+    def test_stat_diffs_need_enough_stats(self):
+        cuts = build.plan_cuts(cut_story(("hook", "shape", "close")))
+        self.assertEqual(cuts[-1]["n"], 76)  # 57 and 58 would be one tall row
+
+    def test_cut_data_is_the_storys_numbers_and_no_commit_text(self):
+        d = build.cut_data(cut_story())
+        self.assertEqual(d["months"][:3], [2, 0, 5])
+        self.assertIn(("lines_added", "1,000"), d["stats"])
+        self.assertEqual(d["jobs"][0], "Hook")
+        self.assertEqual(d["log"], [["week 01", "7 contributions"]])
+
+    def test_cut_data_copes_with_missing_beats(self):
+        d = build.cut_data(cut_story(("hook", "close")))
+        self.assertEqual((d["added"], d["punchcard"], d["languages"]), (0, [], []))
+
+    def test_suite_pace_builds_overlapping_clips_on_the_flow(self):
+        story = build.make_story(year_fixture(), build.CTA, pace="suite")
+        with tempfile.TemporaryDirectory() as tmp:
+            html = build.build(story, Path(tmp), None, None).read_text()
+        flow = json.loads(re.search(r"const FLOW = (\[.*?\]);", html).group(1))
+        timing = json.loads(re.search(r"const TIMING = (\[.*?\]);", html, re.S).group(1))
+        self.assertEqual(len(flow), len(story["beats"]) - 1)
+        self.assertEqual([f["n"] for f in flow], [c["n"] for c in story["cuts"]])
+        for f, nxt, cut in zip(flow, timing[1:], story["cuts"]):
+            self.assertAlmostEqual(nxt["start"] - f["T"], cut["d"] * build.CUT_OVERLAP, places=2)
+        spans = re.findall(r'<section id="s-[^"]+" class="clip scene" data-start="([\d.]+)" data-duration="([\d.]+)" data-track-index="(\d)"', html)
+        self.assertEqual(len(spans), len(story["beats"]))
+        for k, (a, b) in enumerate(zip(spans, spans[1:])):
+            self.assertAlmostEqual(float(b[0]), flow[k]["T"], places=2)  # the next clip starts as the transition does
+            self.assertAlmostEqual(float(a[0]) + float(a[1]), flow[k]["T"] + story["cuts"][k]["d"], places=2)
+            self.assertNotEqual(a[2], b[2])
+        self.assertNotIn("__CUTS__", html)
+        self.assertIn("dir-b cuts", html)
+
+    def test_other_paces_carry_no_transitions(self):
+        for pace in ("calm", "tight"):
+            story = build.make_story(year_fixture(), build.CTA, pace=pace)
+            with tempfile.TemporaryDirectory() as tmp:
+                html = build.build(story, Path(tmp), None, None).read_text()
+            self.assertNotIn("TRANSITIONS", html)
+            self.assertEqual(story["cuts"], [])
+
+    def test_suite_rebuild_keeps_forced_cuts(self):
+        story = build.make_story(year_fixture(), build.CTA, pace="suite")
+        with tempfile.TemporaryDirectory() as tmp:
+            first = story["beats"][1]["id"]
+            story["cut_force"] = {first: 1}
+            build.build(story, Path(tmp), None, None)
+            saved = json.loads((Path(tmp) / "story.json").read_text())
+            self.assertEqual(saved["cuts"][0]["n"], 1)
+            build.build(saved, Path(tmp), None, None)
+            self.assertEqual(saved["cuts"][0]["n"], 1)
+
+
 class PickerReel(unittest.TestCase):
     def load(self):
         import importlib.util
@@ -664,23 +773,12 @@ class PickerReel(unittest.TestCase):
         spec.loader.exec_module(mod)
         return mod
 
-    def test_reel_data_is_the_storys_numbers(self):
-        story = {"user": "u", "year": 2026, "calendar": [["2026-01-01", 2], ["2026-03-01", 5]], "beats": [
-            {"id": "hook", "number": 7}, {"id": "run", "number": 3}, {"id": "ship", "number": 4, "opened": 5},
-            {"id": "lines", "added": 1000, "removed": 10}, {"id": "actions", "number": 9, "runs": 2},
-            {"id": "languages", "repos": 1, "rows": [["HTML", 1]]}, {"id": "punchcard", "grid": [[1]]}]}
-        d = self.load().reel_data(story)
-        self.assertEqual(d["months"][:3], [2, 0, 5])
-        self.assertIn(["lines_added", "1,000"], [list(x) for x in d["stats"]])
-        self.assertEqual(d["jobs"], ["hook", "run", "ship", "lines", "actions", "languages", "punchcard"])
-        self.assertTrue(all(len(m) <= 40 for _, m in d["log"]))
-
     def test_transition_names_are_unique_and_numbers_stay_put(self):
         import shutil
         import subprocess
         if not shutil.which("node"):
             self.skipTest("node not installed")
-        js = (Path(__file__).resolve().parent.parent / "tools" / "transitions.js").read_text()
+        js = build.TRANSITIONS_JS.read_text()
         names = json.loads(subprocess.check_output(["node", "-e", js + "\nconsole.log(JSON.stringify(TRANSITIONS.map(t => t.name)))"]))
         self.assertEqual(len(names), len(set(names)))
         # he picks by number: new ones go on the end

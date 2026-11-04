@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Picker reels for the film's motion. Not part of the skill's build; a tool to choose with.
 
-  transition_reel.py transitions <story.json> <out> [first]   transitions.js, numbered, from number `first`
+  transition_reel.py transitions <story.json> <out> [first]   assets/transitions.js, numbered, from number `first`
+  transition_reel.py suite <story.json> <out>         only the suite the film picks from (build.py:SUITE)
   transition_reel.py pace <story.json> <out>          the same four beats at each pace, lettered
 
 The film's own scenes in the film's own CSS, in a frame with a strip above it holding the number,
@@ -14,7 +15,6 @@ import importlib.util
 import json
 import re
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -48,7 +48,7 @@ def page(tpl: str, film: str, badges: str, timing: list, total: float, js_body: 
     head = head.replace("#root", "#film").replace('height=1350', f'height={1350 + STRIP}')
     # the loop that plays each scene's entrance, without its fades or its hold on the rail
     script = rest[rest.index("<script>") + len("<script>"):rest.index("</script>")]
-    script = re.sub(r"\n\s*if \(si > 0\) tl\.fromTo\(inner.*", "", script)
+    script = re.sub(r"\n\s*if \(si > 0 && PACE\.fadeIn > 0\) tl\.fromTo\(inner.*", "", script)
     script = re.sub(r"\n\s*if \(si < TIMING\.length - 1 && PACE\.fadeOut.*", "", script)
     script = re.sub(r"\n\s*if \(s\.id === \"close\"\) tl\.to\(\"#rail\".*", "", script)
     script = script.replace("/*__TIMING__*/[]", json.dumps(timing))
@@ -112,34 +112,11 @@ def finish(story: dict, out: Path, page_html: str) -> None:
     (comp / "index.html").write_text(page_html)
 
 
-def reel_data(story: dict) -> dict:
-    """The story's real numbers, for the transitions drawn from them."""
-    beat = {b["id"]: b for b in story["beats"]}
-    cal = story["calendar"]
-    months = [0] * 12
-    for d, v in cal:
-        months[int(d[5:7]) - 1] += v
-    weeks = [sum(v for _, v in cal[i:i + 7]) for i in range(0, len(cal), 7)]
-    fmt = lambda n: f"{n:,}"
-    stats = [("contributions", fmt(beat["hook"]["number"])), ("longest_run_days", fmt(beat["run"]["number"])),
-             ("prs_merged", fmt(beat["ship"]["number"])), ("prs_opened", fmt(beat["ship"]["opened"])),
-             ("lines_added", fmt(beat["lines"]["added"])), ("lines_removed", fmt(beat["lines"]["removed"])),
-             ("actions_minutes", fmt(beat["actions"]["number"])), ("actions_runs", fmt(beat["actions"]["runs"])),
-             ("repos", fmt(beat["languages"]["repos"]))]
-    log = subprocess.run(["git", "-C", str(HERE), "log", "--format=%h %s", "-24"], capture_output=True, text=True, check=True).stdout
-    return {"user": story["user"], "year": story["year"], "calendar": cal, "months": months, "weeks": weeks, "stats": stats,
-            "added": beat["lines"]["added"], "removed": beat["lines"]["removed"], "punchcard": beat["punchcard"]["grid"],
-            "languages": beat["languages"]["rows"], "log": [[l.split(" ", 1)[0], l.split(" ", 1)[1][:40]] for l in log.splitlines()],
-            "jobs": [b["id"] for b in story["beats"]][:10]}
-
-
-def transitions_reel(story: dict, out: Path, first: int = 1) -> None:
-    js = (HERE / "transitions.js").read_text()
-    # names and durations live in the JS: read them with node so python and JS cannot disagree
-    meta = json.loads(subprocess.check_output(["node", "-e", js + "\nconsole.log(JSON.stringify(TRANSITIONS.map(t => ({name: t.name, d: t.d, aTop: !!t.aTop}))))"]))
+def transitions_reel(story: dict, out: Path, first: int = 1, only: list[int] | None = None) -> None:
+    meta = B.transition_list()
     (out).mkdir(parents=True, exist_ok=True)
-    (out / "list.json").write_text(json.dumps([{"n": i + 1, **m} for i, m in enumerate(meta)], indent=1))
-    meta = [{"n": i + 1, **m} for i, m in enumerate(meta)][first - 1:]
+    (out / "list.json").write_text(json.dumps(meta, indent=1))
+    meta = [m for m in meta if m["n"] in only] if only else meta[first - 1:]
     base = B.plan_scenes(story, "b", "reel")
     n = len(meta)
     scenes, film, badges, timing = [], [], [], []
@@ -169,18 +146,7 @@ def transitions_reel(story: dict, out: Path, first: int = 1) -> None:
             badges.append(badge(str(meta[i]["n"]), meta[i]["name"], meta_line, b_start, b_end - b_start))
         enter = leave + d * 0.6
     total = round(scenes[-1]["T"], 3)
-    runner = "const DATA = " + json.dumps(reel_data(story)) + ";\n" + js + """
-      const FLOW = """ + json.dumps([{"T": round(x["T"], 3), "k": i, "n": meta[i]["n"]} for i, x in enumerate(scenes[:-1])]) + """;
-      FLOW.forEach(({T, k, n}) => {
-        const t = TRANSITIONS[n - 1];
-        const A = document.getElementById("s-" + TIMING[k].key).querySelector(".tw");
-        const B = document.getElementById("s-" + TIMING[k + 1].key).querySelector(".tw");
-        const c = ctx(tl, T, t.d, A, B);
-        const bg = t.opaque === false ? "rgba(20,18,15,0)" : "rgba(20,18,15,1)";
-        tl.set([A, B], { backgroundColor: bg }, T);
-        t.fn(c);
-      });
-"""
+    runner = B.cut_runner(B.cut_data(story), [{"T": round(x["T"], 3), "k": i, "n": meta[i]["n"]} for i, x in enumerate(scenes[:-1])])
     finish(story, out, page((B.ASSETS / "template.html").read_text(), "\n".join(film), "\n".join(badges), timing, total, runner))
     print(f"{n} transitions, {total} s")
 
@@ -211,4 +177,7 @@ def pace_reel(story: dict, out: Path, ids=("work", "languages", "agents", "model
 if __name__ == "__main__":
     mode, story_path, out = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
     story = prepared(json.loads(story_path.read_text()))
-    {"transitions": transitions_reel, "pace": pace_reel}[mode](story, out, *map(int, sys.argv[4:]))
+    if mode == "suite":
+        transitions_reel(story, out, only=B.SUITE)
+    else:
+        {"transitions": transitions_reel, "pace": pace_reel}[mode](story, out, *map(int, sys.argv[4:]))

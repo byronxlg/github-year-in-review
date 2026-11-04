@@ -284,6 +284,31 @@ story's real calendar, punchcard, lines, months and languages where a mark can c
 the transition, not yet a palette change: 51, 64, 69, 71 and 72 bring in GitHub's own greens, blues,
 purple and language colours, which the film does not otherwise use.
 
+## Transition suite (2026-11-05)
+
+Feedback on the second reel: "most of them are cool, let's create a suite of options to choose from.
+Some of them can be paired with a card as the transition relates to the stats."
+
+- **The suite.** `transitions.js` moves into the skill's assets. `build.py:PAIRS` lists, per card, the
+  transitions that say something about its stat, best first; `NEUTRAL` is the contribution-square
+  covers that say nothing, for when a card's own are used up. 32 in the suite: his 42, 43, 46, 47,
+  and 49 to 76. 1 to 41, 44, 45 and 48 stay in the file for `--cut` and the reel, and are never
+  picked. Numbers are positions in the list, so new ones go on the end.
+- **A plan, recorded.** `plan_cuts` keys each cut by the card it enters, as the beat catalogue does:
+  forced, else first free pair, else next neutral, recorded in `story.json:cuts` with the reason.
+- **No spoilers.** A transition does not show a card's hero number before the card lands, so 60 (all
+  red, then all green) leads for lines and 61 (the real numbers) is its alternative. 57 and 58 show
+  every stat, so they lead into the close, where they are a recap.
+- **What a film shows must be what the film knows.** The reel drew 68 from this repo's git log and 70
+  from beat ids. In a person's film the log could only come from their commit messages, which can
+  name private work, so 68 is now their busiest weeks and 70 the film's own section labels. `cut_data`
+  copes with any beat being absent; a forced transition missing its data is refused.
+- **Pace.** `--pace suite`: the reel's pace B (motion 0.75, holds 2.9 s) with no fades. The incoming
+  entrance starts 60% through the transition, so a cut costs 0.6 of its length: about 0.54 s at the
+  suite's usual 0.9 s. 15 beats in 79 s on 2026 data, against 17 in 68 s at tight and 11 in 75 s at
+  calm. Languages and the biggest day fall out on score. `calm` stays the default until he judges.
+- **Not done.** No blind juror: the cards are unchanged and he is picking.
+
 ## Archetype
 
 Adjective from rhythm, noun from output, each with a one-line reason shown under the name:
