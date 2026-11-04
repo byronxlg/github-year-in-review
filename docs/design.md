@@ -277,6 +277,13 @@ The picked transition and pace then move into `PACES` and the template. Also fix
 dates were overwritten by its film time, so `--story` rebuilds crashed on it (the test had filtered
 the run beat out); the dates are now `run_from`.
 
+Second batch: he liked 42, 43, 46 and 47 ("the GitHub themed ones are cool, come up with more like
+that"), all full-frame covers built from GitHub's marks. Numbers 49 to 76 follow that, using the
+story's real calendar, punchcard, lines, months and languages where a mark can carry data, and
+`transition_reel.py transitions <story> <out> 49` plays only them. Each cover colour is a pick for
+the transition, not yet a palette change: 51, 64, 69, 71 and 72 bring in GitHub's own greens, blues,
+purple and language colours, which the film does not otherwise use.
+
 ## Archetype
 
 Adjective from rhythm, noun from output, each with a one-line reason shown under the name:
