@@ -655,5 +655,38 @@ class BeatGridTest(unittest.TestCase):
             self.assertEqual(build.beat_grid(None, cues), [0.4, 0.9])
 
 
+class PickerReel(unittest.TestCase):
+    def load(self):
+        import importlib.util
+        path = Path(__file__).resolve().parent.parent / "tools" / "transition_reel.py"
+        spec = importlib.util.spec_from_file_location("transition_reel", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_reel_data_is_the_storys_numbers(self):
+        story = {"user": "u", "year": 2026, "calendar": [["2026-01-01", 2], ["2026-03-01", 5]], "beats": [
+            {"id": "hook", "number": 7}, {"id": "run", "number": 3}, {"id": "ship", "number": 4, "opened": 5},
+            {"id": "lines", "added": 1000, "removed": 10}, {"id": "actions", "number": 9, "runs": 2},
+            {"id": "languages", "repos": 1, "rows": [["HTML", 1]]}, {"id": "punchcard", "grid": [[1]]}]}
+        d = self.load().reel_data(story)
+        self.assertEqual(d["months"][:3], [2, 0, 5])
+        self.assertIn(["lines_added", "1,000"], [list(x) for x in d["stats"]])
+        self.assertEqual(d["jobs"], ["hook", "run", "ship", "lines", "actions", "languages", "punchcard"])
+        self.assertTrue(all(len(m) <= 40 for _, m in d["log"]))
+
+    def test_transition_names_are_unique_and_numbers_stay_put(self):
+        import shutil
+        import subprocess
+        if not shutil.which("node"):
+            self.skipTest("node not installed")
+        js = (Path(__file__).resolve().parent.parent / "tools" / "transitions.js").read_text()
+        names = json.loads(subprocess.check_output(["node", "-e", js + "\nconsole.log(JSON.stringify(TRANSITIONS.map(t => t.name)))"]))
+        self.assertEqual(len(names), len(set(names)))
+        # he picks by number: new ones go on the end
+        self.assertEqual(names[41], "Contribution grid, left to right")
+        self.assertEqual(names[46], "Diff rows")
+
+
 if __name__ == "__main__":
     unittest.main()

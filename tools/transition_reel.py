@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Picker reels for the film's motion. Not part of the skill's build; a tool to choose with.
 
-  transition_reel.py transitions <story.json> <out>   every transition in transitions.js, numbered
+  transition_reel.py transitions <story.json> <out> [first]   transitions.js, numbered, from number `first`
   transition_reel.py pace <story.json> <out>          the same four beats at each pace, lettered
 
 The film's own scenes in the film's own CSS, in a frame with a strip above it holding the number,
@@ -14,6 +14,7 @@ import importlib.util
 import json
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -111,13 +112,34 @@ def finish(story: dict, out: Path, page_html: str) -> None:
     (comp / "index.html").write_text(page_html)
 
 
-def transitions_reel(story: dict, out: Path) -> None:
+def reel_data(story: dict) -> dict:
+    """The story's real numbers, for the transitions drawn from them."""
+    beat = {b["id"]: b for b in story["beats"]}
+    cal = story["calendar"]
+    months = [0] * 12
+    for d, v in cal:
+        months[int(d[5:7]) - 1] += v
+    weeks = [sum(v for _, v in cal[i:i + 7]) for i in range(0, len(cal), 7)]
+    fmt = lambda n: f"{n:,}"
+    stats = [("contributions", fmt(beat["hook"]["number"])), ("longest_run_days", fmt(beat["run"]["number"])),
+             ("prs_merged", fmt(beat["ship"]["number"])), ("prs_opened", fmt(beat["ship"]["opened"])),
+             ("lines_added", fmt(beat["lines"]["added"])), ("lines_removed", fmt(beat["lines"]["removed"])),
+             ("actions_minutes", fmt(beat["actions"]["number"])), ("actions_runs", fmt(beat["actions"]["runs"])),
+             ("repos", fmt(beat["languages"]["repos"]))]
+    log = subprocess.run(["git", "-C", str(HERE), "log", "--format=%h %s", "-24"], capture_output=True, text=True, check=True).stdout
+    return {"user": story["user"], "year": story["year"], "calendar": cal, "months": months, "weeks": weeks, "stats": stats,
+            "added": beat["lines"]["added"], "removed": beat["lines"]["removed"], "punchcard": beat["punchcard"]["grid"],
+            "languages": beat["languages"]["rows"], "log": [[l.split(" ", 1)[0], l.split(" ", 1)[1][:40]] for l in log.splitlines()],
+            "jobs": [b["id"] for b in story["beats"]][:10]}
+
+
+def transitions_reel(story: dict, out: Path, first: int = 1) -> None:
     js = (HERE / "transitions.js").read_text()
     # names and durations live in the JS: read them with node so python and JS cannot disagree
-    import subprocess
     meta = json.loads(subprocess.check_output(["node", "-e", js + "\nconsole.log(JSON.stringify(TRANSITIONS.map(t => ({name: t.name, d: t.d, aTop: !!t.aTop}))))"]))
     (out).mkdir(parents=True, exist_ok=True)
     (out / "list.json").write_text(json.dumps([{"n": i + 1, **m} for i, m in enumerate(meta)], indent=1))
+    meta = [{"n": i + 1, **m} for i, m in enumerate(meta)][first - 1:]
     base = B.plan_scenes(story, "b", "reel")
     n = len(meta)
     scenes, film, badges, timing = [], [], [], []
@@ -144,13 +166,13 @@ def transitions_reel(story: dict, out: Path) -> None:
             if i + 1 == n:
                 b_end += 0.6 + LABEL_LEAD
             meta_line = "no transition time" if d == 0 else f"{d:g} s"
-            badges.append(badge(str(i + 1), meta[i]["name"], meta_line, b_start, b_end - b_start))
+            badges.append(badge(str(meta[i]["n"]), meta[i]["name"], meta_line, b_start, b_end - b_start))
         enter = leave + d * 0.6
     total = round(scenes[-1]["T"], 3)
-    runner = js + """
-      const FLOW = """ + json.dumps([{"T": round(x["T"], 3), "k": i} for i, x in enumerate(scenes[:-1])]) + """;
-      FLOW.forEach(({T, k}) => {
-        const t = TRANSITIONS[k];
+    runner = "const DATA = " + json.dumps(reel_data(story)) + ";\n" + js + """
+      const FLOW = """ + json.dumps([{"T": round(x["T"], 3), "k": i, "n": meta[i]["n"]} for i, x in enumerate(scenes[:-1])]) + """;
+      FLOW.forEach(({T, k, n}) => {
+        const t = TRANSITIONS[n - 1];
         const A = document.getElementById("s-" + TIMING[k].key).querySelector(".tw");
         const B = document.getElementById("s-" + TIMING[k + 1].key).querySelector(".tw");
         const c = ctx(tl, T, t.d, A, B);
@@ -189,4 +211,4 @@ def pace_reel(story: dict, out: Path, ids=("work", "languages", "agents", "model
 if __name__ == "__main__":
     mode, story_path, out = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
     story = prepared(json.loads(story_path.read_text()))
-    {"transitions": transitions_reel, "pace": pace_reel}[mode](story, out)
+    {"transitions": transitions_reel, "pace": pace_reel}[mode](story, out, *map(int, sys.argv[4:]))
