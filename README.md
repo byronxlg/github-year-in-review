@@ -8,7 +8,7 @@ Rendered with HyperFrames (`npx hyperframes`); no other skill needed.
 
 ![byronxlg 2026 poster](examples/byronxlg-2026.jpg)
 
-Example: [examples/byronxlg-2026.mp4](examples/byronxlg-2026.mp4) (73 s, 1080x1350, 4 MB).
+Example: [examples/byronxlg-2026.mp4](examples/byronxlg-2026.mp4) (79 s, 1080x1350, 2.4 MB).
 Thumbnail: [examples/byronxlg-2026-thumbnail.png](examples/byronxlg-2026-thumbnail.png).
 
 ## What the film shows
@@ -38,6 +38,9 @@ Optional, only when the data is there:
   prefixes (`claude/`, `codex/`). Shows when at least 10 sampled commits and 5% are signed.
 - **The biggest change**: your largest merged PR as a diff stat (`+80,807 -40`) over the
   year's lines added and removed. Needs a nameable PR of 300+ lines.
+- **Lines changed**: the year's lines added and removed in merged PRs, drawn against a famous
+  codebase on the same scale ("about twice the Quake III Arena source"). 1,000+ lines added.
+- **Machine time**: GitHub Actions minutes on your own repos, by month, and as days. 60+ minutes.
 - **Shipped to users**: releases tagged on your repos, first to latest version. 3+ releases.
 - **Open source**: PRs merged into other people's public projects. 3+ PRs.
 - **One more thing**: your automation, or your busiest day (when the agents beat is absent).

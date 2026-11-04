@@ -50,7 +50,11 @@ out of the rhythm and "work" beats and becomes its own surprise beat.
 
 It also collects the optional, topical data: **agents** (commits co-written with coding agents,
 detected from signatures only, plus agent PRs by footer, app author and `claude/`-style branch
-prefixes), **releases** tagged this year, and the biggest merged PR. These become beats only
+prefixes), **releases** tagged this year, the biggest merged PR, the year's **lines** added and
+removed (summed over merged PRs; PRs are fetched a month at a time so the search's 1,000-result
+cap does not cut them), and **actions**: GitHub Actions run time on the user's own repos (every
+workflow run listed, wall clock from start to finish; a page budget caps very busy accounts and
+the rest is estimated and flagged). These become beats only
 when the numbers are there (thresholds in [references/story.md](references/story.md)).
 
 **Gate:** read `year.json` and sanity-check it before building. Headline total should match the
@@ -145,7 +149,7 @@ npx hyperframes snapshot thumbnail --at 0.5 --no-end -o thumbnail/shots
 cp thumbnail/shots/frame-00-at-0.5s.png thumbnail.png
 ```
 
-**Gate:** `year-in-review.mp4` is H.264, 1080x1350, under 50 MB, 25-75 s (build caps at 70 plus chapter cards); `poster.jpg` exists; `thumbnail.png` is 1080x1350 and you have looked at it (no counters, no rail, the name on its lines and nothing clipped).
+**Gate:** `year-in-review.mp4` is H.264, 1080x1350, under 50 MB, 25-85 s (build caps the beats at 78 s estimated, plus chapter cards); `poster.jpg` exists; `thumbnail.png` is 1080x1350 and you have looked at it (no counters, no rail, the name on its lines and nothing clipped).
 
 Write `<out>/share-copy.txt`: two or three plain sentences in the user's voice, built from the
 strongest true facts (the archetype, one number, one project). No hashtag wall; at most two.

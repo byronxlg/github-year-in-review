@@ -1233,15 +1233,16 @@
     ],
     [
       "2026-11-04",
-      51
+      56
     ]
   ],
+  "period_to": "2026-11-04",
   "beats": [
     {
       "id": "hook",
       "label": "GitHub, 2026 so far",
       "name": "Byron Smith",
-      "number": 5058,
+      "number": 5063,
       "unit": "contributions",
       "line": "on GitHub, across 18 repos and 120 active days.",
       "index": 1,
@@ -1265,28 +1266,6 @@
       "duration": 6.2,
       "cmd": "git log --since=2026-01-01 --format=%as | uniq -c",
       "start": 10.1
-    },
-    {
-      "id": "run",
-      "label": "The longest run",
-      "number": 45,
-      "unit": "days in a row",
-      "start": 16.3,
-      "end": "2026-11-04",
-      "sub": "Sep 21 to Nov 4, and still going",
-      "facts": [
-        [
-          "120",
-          "days with commits"
-        ],
-        [
-          "38%",
-          "of commits on weekends"
-        ]
-      ],
-      "index": 3,
-      "duration": 6.4,
-      "cmd": "git log --format=%as | uniq | longest-run"
     },
     {
       "id": "clock",
@@ -1320,10 +1299,10 @@
       "peak": 21,
       "peak_label": "9 pm",
       "sub": "Latest commit: 03:59 on Oct 27.",
-      "index": 4,
+      "index": 3,
       "duration": 5.9,
       "cmd": "git log --date=format:%H --format=%ad | uniq -c",
-      "start": 22.7
+      "start": 16.3
     },
     {
       "id": "work",
@@ -1356,10 +1335,10 @@
       ],
       "lead": "Twenty days of an unattended AI-native SDLC",
       "lead_name": "unattended",
-      "index": 5,
+      "index": 4,
       "duration": 6.35,
       "cmd": "git shortlog -sn",
-      "start": 32.867
+      "start": 26.467
     },
     {
       "id": "agents",
@@ -1381,26 +1360,72 @@
         }
       ],
       "trend": "",
-      "prs": "350 pull requests opened with Claude Code.",
-      "auto": "Your cron's 2,685 commits are counted separately.",
-      "sub": "350 pull requests opened with Claude Code.",
-      "index": 6,
+      "prs": "351 pull requests opened with Claude Code.",
+      "auto": "Your cron's 2,688 commits are counted separately.",
+      "sub": "351 pull requests opened with Claude Code.",
+      "index": 5,
       "duration": 6.55,
       "cmd": "git log --format='%(trailers:key=Co-authored-by)'",
-      "start": 39.217
+      "start": 32.817
     },
     {
       "id": "ship",
       "label": "What landed",
-      "number": 1213,
+      "number": 1214,
       "unit": "pull requests merged",
-      "opened": 1344,
-      "sub": "90% of the 1,344 opened. 57 reviews given.",
-      "ext": "Including one into xpaysh/awesome-x402, 301 stars.",
-      "index": 7,
+      "opened": 1345,
+      "sub": "90% of the 1,345 opened. 57 reviews given.",
+      "ext": "Including one into andyrewlee/awesome-agent-orchestrators, 2,344 stars.",
+      "index": 6,
       "duration": 5.95,
       "cmd": "gh pr list --author @me --state merged",
-      "start": 45.767
+      "start": 39.367
+    },
+    {
+      "id": "lines",
+      "label": "Lines changed",
+      "added": 540853,
+      "removed": 166863,
+      "net": 373990,
+      "unit": "lines in merged pull requests",
+      "ref": {
+        "name": "the Quake III Arena source",
+        "short": "Quake III Arena",
+        "lines": 332692,
+        "source": "id-Software/Quake-III-Arena dbe4ddb, code/ .c .h .s .asm .cpp",
+        "ratio": 1.63
+      },
+      "sub": "Added: about one and a half times the Quake III Arena source.",
+      "index": 7,
+      "duration": 5.95,
+      "cmd": "git log --shortstat --author=byronxlg --since=2026-01-01",
+      "start": 45.317
+    },
+    {
+      "id": "actions",
+      "label": "Machine time",
+      "number": 33843,
+      "unit": "minutes of Actions runs on your repos",
+      "by_month": [
+        12,
+        1,
+        237,
+        0,
+        520,
+        324,
+        569,
+        1120,
+        1390,
+        28422,
+        1249,
+        0
+      ],
+      "runs": 10716,
+      "sub": "About 24 days of machine time, 84% of it in October.",
+      "index": 8,
+      "duration": 5.95,
+      "cmd": "gh run list --json startedAt,updatedAt",
+      "start": 55.267
     },
     {
       "id": "releases",
@@ -1468,20 +1493,20 @@
         }
       ],
       "sub": "33 of them in 3 days in March.",
-      "index": 8,
+      "index": 9,
       "duration": 6.4,
       "cmd": "git tag --sort=-creatordate",
-      "start": 55.717
+      "start": 61.217
     },
     {
       "id": "identity",
       "label": "2026 so far, in one line",
       "name": "The Weekend Orchestrator",
       "reason": "58% of commits shipped with agents, 38% of commits on weekends.",
-      "index": 9,
+      "index": 10,
       "duration": 5.3,
       "cmd": "whoami",
-      "start": 62.117
+      "start": 67.617
     },
     {
       "id": "close",
@@ -1489,10 +1514,10 @@
       "handle": "@byronxlg",
       "year": "2026 so far",
       "cta": "Make yours: github.com/byronxlg/github-year-in-review",
-      "index": 10,
+      "index": 11,
       "duration": 6.0,
       "cmd": "git commit -m \"2026, in review\"",
-      "start": 67.417
+      "start": 72.917
     }
   ],
   "direction": "b"
