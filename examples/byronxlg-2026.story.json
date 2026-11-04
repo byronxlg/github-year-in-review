@@ -1229,7 +1229,11 @@
     ],
     [
       "2026-11-03",
-      35
+      46
+    ],
+    [
+      "2026-11-04",
+      38
     ]
   ],
   "beats": [
@@ -1237,9 +1241,9 @@
       "id": "hook",
       "label": "GitHub, 2026 so far",
       "name": "Byron Smith",
-      "number": 4996,
+      "number": 5045,
       "unit": "contributions",
-      "line": "on GitHub, across 18 repos and 119 active days.",
+      "line": "on GitHub, across 18 repos and 120 active days.",
       "index": 1,
       "duration": 5.7,
       "cmd": "year-in-review --user byronxlg --year 2026",
@@ -1265,12 +1269,12 @@
     {
       "id": "run",
       "label": "The longest run",
-      "number": 44,
+      "number": 45,
       "unit": "days in a row",
-      "sub": "Sep 21 to Nov 3, and still going",
+      "sub": "Sep 21 to Nov 4, and still going",
       "facts": [
         [
-          "119",
+          "120",
           "days with commits"
         ],
         [
@@ -1282,6 +1286,43 @@
       "duration": 5.8,
       "cmd": "git log --format=%as | uniq | longest-run",
       "start": 16.3
+    },
+    {
+      "id": "clock",
+      "label": "When the work happens",
+      "hours": [
+        37,
+        41,
+        35,
+        34,
+        27,
+        32,
+        50,
+        38,
+        41,
+        43,
+        50,
+        55,
+        43,
+        50,
+        54,
+        66,
+        38,
+        24,
+        42,
+        52,
+        64,
+        114,
+        101,
+        54
+      ],
+      "peak": 21,
+      "peak_label": "9 pm",
+      "sub": "Latest commit: 03:59 on Oct 27.",
+      "index": 4,
+      "duration": 5.9,
+      "cmd": "git log --date=format:%H --format=%ad | uniq -c",
+      "start": 22.1
     },
     {
       "id": "work",
@@ -1314,50 +1355,50 @@
       ],
       "lead": "Twenty days of an unattended AI-native SDLC",
       "lead_name": "unattended",
-      "index": 4,
+      "index": 5,
       "duration": 5.9,
-      "cmd": "git shortlog -sn --since=2026-01-01",
-      "start": 26.367
+      "cmd": "git shortlog -sn",
+      "start": 32.267
     },
     {
       "id": "agents",
       "label": "Shipped with a team",
-      "number": 57,
+      "number": 58,
       "unit": "of your commits co-written with Claude",
       "rows": [
         {
           "trailer": "Claude Opus 5.5",
-          "share": 0.366
+          "share": 0.406
         },
         {
           "trailer": "Claude Opus 4.8",
-          "share": 0.359
+          "share": 0.336
         },
         {
           "trailer": "Claude Opus 4.6",
-          "share": 0.148
+          "share": 0.138
         }
       ],
       "trend": "",
-      "prs": "330 pull requests opened with Claude Code.",
-      "auto": "Your cron's 2,640 commits are counted separately.",
-      "sub": "330 pull requests opened with Claude Code.",
-      "index": 5,
+      "prs": "347 pull requests opened with Claude Code.",
+      "auto": "Your cron's 2,678 commits are counted separately.",
+      "sub": "347 pull requests opened with Claude Code.",
+      "index": 6,
       "duration": 6.25,
       "cmd": "git log --format='%(trailers:key=Co-authored-by)'",
-      "start": 32.267
+      "start": 38.167
     },
     {
       "id": "ship",
       "label": "What landed",
-      "number": 1191,
+      "number": 1210,
       "unit": "pull requests merged",
-      "sub": "90% of the 1,324 opened. 57 reviews given.",
+      "sub": "90% of the 1,341 opened. 57 reviews given.",
       "ext": "Including one into xpaysh/awesome-x402, 301 stars.",
-      "index": 6,
+      "index": 7,
       "duration": 5.95,
       "cmd": "gh pr list --author @me --state merged",
-      "start": 38.517
+      "start": 44.417
     },
     {
       "id": "releases",
@@ -1377,48 +1418,20 @@
         }
       ],
       "sub": "skillfold went from v0.1.0 to v2.9.0.",
-      "index": 7,
-      "duration": 6.1,
-      "cmd": "git tag --sort=-creatordate",
-      "start": 48.467
-    },
-    {
-      "id": "started",
-      "label": "Started this year",
-      "number": 30,
-      "unit": "new repos",
-      "rows": [
-        {
-          "name": "skillfold",
-          "meta": "15 stars",
-          "desc": "Declarative skill manager for Claude Code and Codex"
-        },
-        {
-          "name": "polymarket-tui",
-          "meta": "5 stars",
-          "desc": "Fast, keyboard-driven terminal client for Polymarket"
-        },
-        {
-          "name": "skills",
-          "meta": "Shell",
-          "desc": "A collection of Claude Code skills by byronxlg"
-        }
-      ],
-      "sub": "20 stars earned this year.",
       "index": 8,
       "duration": 6.1,
-      "cmd": "gh repo list --source",
-      "start": 54.567
+      "cmd": "git tag --sort=-creatordate",
+      "start": 54.367
     },
     {
       "id": "identity",
       "label": "2026 so far, in one line",
       "name": "The Weekend Orchestrator",
-      "reason": "57% of commits shipped with agents, 38% of commits on weekends.",
+      "reason": "58% of commits shipped with agents, 38% of commits on weekends.",
       "index": 9,
       "duration": 5.3,
       "cmd": "whoami",
-      "start": 60.667
+      "start": 60.467
     },
     {
       "id": "close",
@@ -1429,7 +1442,7 @@
       "index": 10,
       "duration": 6.0,
       "cmd": "git commit -m \"2026, in review\"",
-      "start": 65.967
+      "start": 65.767
     }
   ],
   "direction": "b"
