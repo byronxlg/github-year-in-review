@@ -366,6 +366,27 @@ class Story(unittest.TestCase):
             starts = [b["start"] for b in saved["beats"]]
             self.assertEqual(starts, sorted(starts))
 
+    def test_tight_pace_fits_more_beats_in_less_time(self):
+        """#19364819: no chapter cards, cuts, and the reading-floor hold; calm stays as it was."""
+        def film(pace):
+            story = build.make_story(year_fixture(), build.CTA, pace=pace)
+            with tempfile.TemporaryDirectory() as tmp:
+                html = build.build(story, Path(tmp), None, None).read_text()
+            return story, json.loads(re.search(r"const TIMING = (\[.*?\]);", html, re.S).group(1)), html
+        calm, calm_t, calm_h = film("calm")
+        tight, tight_t, tight_h = film("tight")
+        self.assertGreaterEqual(len(tight["beats"]), len(calm["beats"]))
+        self.assertTrue(any(s["id"] == "chapter" for s in calm_t))
+        self.assertFalse(any(s["id"] == "chapter" for s in tight_t))
+        self.assertLess(max(s["duration"] for s in tight_t), 5.0)
+        self.assertIn('"fadeOut": 0.0', tight_h)
+        self.assertNotIn("__PACE__", calm_h + tight_h)
+        # every beat still holds still for the reading floor after its last motion
+        for beat in tight["beats"]:
+            html = build.scene_html(beat, tight, 9, "b")
+            b = build.beat_timing(beat["id"], html, None, "tight")
+            self.assertGreaterEqual(b["duration"] - b["settle"], 2.5 - 1e-3)
+
     def test_chapter_commands_are_typed_and_fit(self):
         """v3 regression: chapter cards drew the prompt but never typed the command."""
         with tempfile.TemporaryDirectory() as tmp:

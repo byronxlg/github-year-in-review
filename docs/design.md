@@ -251,6 +251,20 @@ mandatory and some are optional."
   30 a minute and retried on the secondary rate limit, which had silently emptied the agents
   sample for September to November.
 
+## v9 test: tight pace (2026-11-05)
+
+Feedback: "Let's test out more content and less transition time." `--pace tight`; `calm` stays the
+default until the test is judged.
+
+- **What was spent.** Calm, on 2026 data: 11 beats in 75.4 s, 12.7 s of it three chapter cards,
+  and about 0.7 s of fade at every cut. Six beats scored 0.41 to 0.75 and were cut for time.
+- **Tight.** No chapter cards (each beat keeps its section name); a cut plus a 0.1 s fade in; all
+  motion at 0.6 speed; hold 2.5 s, the v3 reading floor, raised per beat so the longest line meets
+  the `line_unread` floor. Same 78 s budget: 17 beats in 68.1 s, about 4 s a beat.
+- **A score of 0 never plays.** With room in the budget a 0.00 beat would otherwise be taken.
+- **Not done.** No blind juror: the scenes are unchanged, pace is the only variable and Byron is
+  judging the motion himself.
+
 ## Archetype
 
 Adjective from rhythm, noun from output, each with a one-line reason shown under the name:

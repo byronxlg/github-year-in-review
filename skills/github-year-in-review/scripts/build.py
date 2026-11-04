@@ -41,6 +41,15 @@ TYPE_CPS = 30  # typing speed, characters per second
 HERO = {"hook": 1.4, "shape": 1.6, "clock": 1.3, "work": 1.3, "identity": 0.7, "close": 0.8}
 SUPPORT_RISE, STAGGER = 0.55, 0.15
 HOLD = {"default": 3.0, "close": 3.6, "chapter": 1.2}
+# calm: v3-v8. tight (v9, test): more beats, less time between them. No chapter cards, a cut instead
+# of a fade out, motion at `speed`, the reading-floor hold. `est` scales EST_DURATION for selection.
+PACES = {
+    "calm": {"chapters": True, "speed": 1.0, "hold": 1.0, "fade_in": 0.3, "fade_out": 0.35, "lead": LEAD,
+             "gap": GAP, "exit": EXIT, "est": 1.0},
+    "tight": {"chapters": False, "speed": 0.6, "hold": 2.5 / 3.0, "fade_in": 0.1, "fade_out": 0.0, "lead": 0.08,
+              "gap": 0.12, "exit": 0.0, "est": 0.56},
+}
+PACE = "calm"
 DIRECTION = "b"  # juror pick 2026-11-03; see docs/design.md v3
 # Direction B: chapter cards (title, command, beats in the chapter), inserted before the chapter's first beat.
 CHAPTERS = [
@@ -657,7 +666,7 @@ def score_beat(sid: str, d: dict, b: dict) -> float:
 
 
 def select_beats(cands: dict, scores: dict, reasons: dict, force=(), skip=(),
-                 max_total: float = MAX_TOTAL) -> tuple[list[str], dict]:
+                 max_total: float = MAX_TOTAL, est: float = 1.0) -> tuple[list[str], dict]:
     """Pick the film's beats from the eligible candidates. Mandatory and forced beats first; then
     optional beats by score, one per slot, while they fit the time budget. Returns the chosen ids
     in catalogue order and the selection record for story.json."""
@@ -672,7 +681,7 @@ def select_beats(cands: dict, scores: dict, reasons: dict, force=(), skip=(),
     while True:
         chosen = list(must)
         slots = {BEATS[s]["slot"]: s for s in chosen}
-        used = sum(EST_DURATION[s] for s in chosen)
+        used = sum(EST_DURATION[s] * est for s in chosen)
         why: dict[str, str] = {}
         opt = sorted((s for s in cands if s not in left and s not in chosen and s not in yielded),
                      key=lambda s: (-scores[s], BEATS[s]["order"]))
@@ -683,12 +692,14 @@ def select_beats(cands: dict, scores: dict, reasons: dict, force=(), skip=(),
             elif slot in slots:
                 why[s] = f"alternative {slots[slot]} scored higher" if slots[slot] not in force \
                     else f"alternative {slots[slot]} was forced"
-            elif used + EST_DURATION[s] > max_total:
-                why[s] = f"over the time budget ({used:.0f} of {max_total:.0f} s used, needs {EST_DURATION[s]:.0f})"
+            elif scores[s] <= 0:
+                why[s] = "score 0: this number is not strong enough to spend a beat on"
+            elif used + EST_DURATION[s] * est > max_total:
+                why[s] = f"over the time budget ({used:.0f} of {max_total:.0f} s used, needs {EST_DURATION[s] * est:.0f})"
             else:
                 chosen.append(s)
                 slots[slot] = s
-                used += EST_DURATION[s]
+                used += EST_DURATION[s] * est
         clash = [s for s, other in YIELDS_TO.items() if s in chosen and other in chosen and s not in must]
         if not clash:
             break
@@ -709,7 +720,7 @@ def select_beats(cands: dict, scores: dict, reasons: dict, force=(), skip=(),
     return chosen, rec
 
 
-def make_story(d: dict, cta: str, force=(), skip=()) -> dict:
+def make_story(d: dict, cta: str, force=(), skip=(), pace: str = PACE) -> dict:
     """story.json from year.json: build every eligible beat, score the optional ones, select."""
     unknown = [s for s in (*force, *skip) if s not in BEATS]
     if unknown:
@@ -726,13 +737,13 @@ def make_story(d: dict, cta: str, force=(), skip=()) -> dict:
             reasons[sid] = got
     if "close" in cands:
         cands["close"]["cta"] = cta
-    chosen, rec = select_beats(cands, scores, reasons, set(force), set(skip))
+    chosen, rec = select_beats(cands, scores, reasons, set(force), set(skip), est=PACES[pace]["est"])
     beats = [cands[s] for s in chosen]
     number_beats(beats)
     for b in beats:
         b["cmd"] = COMMANDS[b["id"]].format(user=u["login"], year=p["year"])
     return {"user": u["login"], "year": p["year"], "year_label": c["year_label"], "calendar": d["calendar"],
-            "period_to": p.get("to"), "selection": rec, "beats": beats}
+            "period_to": p.get("to"), "pace": pace, "selection": rec, "beats": beats}
 
 
 # --------------------------------------------------------------------------- timing
@@ -1235,33 +1246,39 @@ def chapter_html(ch: dict) -> str:
             f'</span><i class="cur"></i></div><div class="arch rise" data-p="2">{E(ch["title"])}</div></div></div>')
 
 
-def beat_timing(sid: str, html_: str, typed: str | None) -> dict:
+def beat_timing(sid: str, html_: str, typed: str | None, pace: str = PACE) -> dict:
     """Times, relative to the scene start, for the phases of one scene. Never two phases at once:
     type the command, stop; then the hero lands; then the supporting group; then hold."""
-    t = LEAD if sid != "hook" else 0.0
+    P = PACES[pace]
+    speed, gap = P["speed"], P["gap"]
+    t = P["lead"] if sid != "hook" else 0.0
     type_at = type_dur = 0.0
     if typed:
         type_at, type_dur = t, min(1.6, 0.3 + len(typed) / TYPE_CPS)
-        t = type_at + type_dur + GAP
+        t = type_at + type_dur + gap
     t1 = t
-    hero = HERO.get(sid, 1.2) if 'data-p="1"' in html_ or sid in ("shape", "close") else 0.0
-    t2 = t1 + hero + (GAP if hero else 0)
+    hero = speed * HERO.get(sid, 1.2) if 'data-p="1"' in html_ or sid in ("shape", "close") else 0.0
+    t2 = t1 + hero + (gap if hero else 0)
     n2 = html_.count('data-p="2"')
-    settle = t2 + (SUPPORT_RISE + STAGGER * (n2 - 1) if n2 else 0)
+    settle = t2 + (speed * (SUPPORT_RISE + STAGGER * (n2 - 1)) if n2 else 0)
     if any(k in html_ for k in ('class="w', 'class="t r')):
-        settle += 0.45  # a unit chart fills one square at a time (0.8 s at most), then holds
-    hold = HOLD.get(sid, HOLD["default"])
+        settle += speed * 0.45  # a unit chart fills one square at a time (0.8 s at most), then holds
+    hold = HOLD.get(sid, HOLD["default"]) * P["hold"]
+    if pace != "calm":  # a shorter hold still has to read: hyperframes line_unread floor, 0.75 (0.5 + 0.3 a word)
+        lines = re.findall(r'<div class="sub[^"]*"[^>]*>(.*?)</div>', html_, re.S)
+        words = max((len(re.sub(r"<[^>]+>", " ", x).split()) for x in lines), default=0)
+        hold = max(hold, 0.75 * (0.5 + 0.3 * words) + 0.1)
     return {"type_at": round(type_at, 3), "type_dur": round(type_dur, 3), "t1": round(t1, 3),
-            "t2": round(t2, 3), "settle": round(settle, 3), "duration": round(settle + hold + EXIT, 3)}
+            "t2": round(t2, 3), "settle": round(settle, 3), "duration": round(settle + hold + P["exit"], 3)}
 
 
-def plan_scenes(story: dict, direction: str) -> list[dict]:
+def plan_scenes(story: dict, direction: str, pace: str = PACE) -> list[dict]:
     """The beats, plus chapter cards for direction B, each with its html and phase timing."""
     beats = story["beats"]
     scenes = []
     parts = [c for c in CHAPTERS if any(b["id"] in c[2] for b in beats)]
     for b in beats:
-        if direction == "b":
+        if direction == "b" and PACES[pace]["chapters"]:
             for k, (title, cmd, ids) in enumerate(parts):
                 first = next(x for x in beats if x["id"] in ids)
                 if first is b:
@@ -1269,10 +1286,10 @@ def plan_scenes(story: dict, direction: str) -> list[dict]:
                           "cmd": cmd.format(user=story["user"], year=story["year"])}
                     h = chapter_html(ch)
                     scenes.append({"key": f"ch{k + 1}", "id": "chapter", "html": h, "beat": None,
-                                   **beat_timing("chapter", h, ch["cmd"])})
+                                   **beat_timing("chapter", h, ch["cmd"], pace)})
         h = scene_html(b, story, len(beats), direction)
         typed = b.get("cmd") if direction == "a" and b["id"] != "hook" else None
-        scenes.append({"key": b["id"], "id": b["id"], "html": h, "beat": b, **beat_timing(b["id"], h, typed)})
+        scenes.append({"key": b["id"], "id": b["id"], "html": h, "beat": b, **beat_timing(b["id"], h, typed, pace)})
     return scenes
 
 
@@ -1281,7 +1298,8 @@ def build(story: dict, out: Path, music: Path | None, cues: Path | None, directi
     for i, b in enumerate(beats):
         b["index"] = i + 1
         b.setdefault("cmd", COMMANDS[b["id"]].format(user=story["user"], year=story["year"]))
-    scenes = plan_scenes(story, direction)
+    pace = story.get("pace", PACE)
+    scenes = plan_scenes(story, direction, pace)
     grid = beat_grid(music, cues)
     snap_times(scenes, grid)
     for s in scenes:
@@ -1313,7 +1331,9 @@ def build(story: dict, out: Path, music: Path | None, cues: Path | None, directi
             .replace("__YEAR__", E(story["year_label"]))
             .replace("<!--__SCENES__-->", html_scenes)
             .replace("<!--__AUDIO__-->", audio)
-            .replace("/*__TIMING__*/[]", json.dumps(timing)))
+            .replace("/*__TIMING__*/[]", json.dumps(timing))
+            .replace("/*__PACE__*/{ speed: 1, fadeIn: 0.3, fadeOut: 0.35 }", json.dumps(
+                {"speed": PACES[pace]["speed"], "fadeIn": PACES[pace]["fade_in"], "fadeOut": PACES[pace]["fade_out"]})))
     (comp / "index.html").write_text(page)
     build_thumbnail(story, out, tpl)
     story["direction"] = direction
@@ -1396,7 +1416,8 @@ def build_thumbnail(story: dict, out: Path, tpl: str) -> Path:
             .replace("<title>GitHub year in review</title>", "<title>GitHub year in review: thumbnail</title>")
             .replace("<!--__SCENES__-->", scene)
             .replace("<!--__AUDIO__-->", "")
-            .replace("/*__TIMING__*/[]", "[]"))
+            .replace("/*__TIMING__*/[]", "[]")
+            .replace("/*__PACE__*/", ""))
     (comp / "index.html").write_text(page)
     return comp / "index.html"
 
@@ -1410,6 +1431,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cues", help="beat JSON (hyperframes beats --json output, or a beats array) to start scenes on the beat; detected from --music when omitted")
     p.add_argument("--cta", default=CTA)
     p.add_argument("--direction", choices=["a", "b"], default=DIRECTION)
+    p.add_argument("--pace", choices=list(PACES), help="calm (default): chapter cards, fades, 3 s holds. tight: "
+                   "no cards, cuts, faster motion, 2.5 s holds, so more beats fit the budget. --story keeps its own")
     p.add_argument("--beats", default="", help="optional beat ids to force in, comma separated (an alternative "
                    "in the same slot makes way; forced beats count against the time budget first)")
     p.add_argument("--skip", default="", help="optional beat ids to leave out, comma separated")
@@ -1423,9 +1446,11 @@ def main(argv: list[str] | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     if a.story:
         story = json.loads(Path(a.story).read_text())  # copy edits stay; timing is re-derived
+        if a.pace:
+            story["pace"] = a.pace
     else:
         ids = lambda x: [k.strip() for k in x.split(",") if k.strip()]
-        story = make_story(json.loads(Path(a.year_json).read_text()), a.cta, ids(a.beats), ids(a.skip))
+        story = make_story(json.loads(Path(a.year_json).read_text()), a.cta, ids(a.beats), ids(a.skip), a.pace or PACE)
     page = build(story, out, Path(a.music) if a.music else None, Path(a.cues) if a.cues else None, a.direction)
     total = story["beats"][-1]["start"] + story["beats"][-1]["duration"]
     print(f"{len(story['beats'])} beats, {total:.1f}s -> {page}", file=sys.stderr)
