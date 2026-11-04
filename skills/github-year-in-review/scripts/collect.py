@@ -17,6 +17,7 @@ import argparse
 import collections
 import datetime as dt
 import json
+import os
 import re
 import subprocess
 import sys
@@ -667,6 +668,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("No --user and gh is not authenticated")
     tz = a.tz or local_tz()
     data, raw = collect(user, a.year, tz, a.include_private)
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     with open(a.out, "w") as fh:
         json.dump(data, fh, indent=2)
     if a.raw_cache:
