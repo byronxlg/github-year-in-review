@@ -361,10 +361,20 @@ class Story(unittest.TestCase):
             self.assertIn('data-composition-id="main"', html)
             self.assertNotIn("__DURATION__", html)
             saved = json.loads((out / "story.json").read_text())
-            saved["beats"] = [b for b in saved["beats"] if b["id"] != "run"]
             build.build(saved, out, None, None)
             starts = [b["start"] for b in saved["beats"]]
             self.assertEqual(starts, sorted(starts))
+
+    def test_rebuild_keeps_the_run_dates(self):
+        """A beat's "start" is its time in the film; the run's first day must not share that key."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            build.build(build.make_story(year_fixture(), build.CTA, force=["run"]), out, None, None)
+            saved = json.loads((out / "story.json").read_text())
+            run = next(b for b in saved["beats"] if b["id"] == "run")
+            self.assertEqual(run["run_from"], "2025-03-01")
+            build.build(saved, out, None, None)
+            self.assertIn('class="runline', (out / "composition" / "index.html").read_text())
 
     def test_tight_pace_fits_more_beats_in_less_time(self):
         """#19364819: no chapter cards, cuts, and the reading-floor hold; calm stays as it was."""

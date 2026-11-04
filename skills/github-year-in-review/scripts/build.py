@@ -360,7 +360,7 @@ def b_run(d, c):
         return f"longest streak {s['longest']} days, under 3"
     still = s["end"] == p["to"] and s["current"] == s["longest"]
     return {"id": "run", "label": "The longest run",
-            "number": s["longest"], "unit": "days in a row", "start": s["start"], "end": s["end"],
+            "number": s["longest"], "unit": "days in a row", "run_from": s["start"], "end": s["end"],
             "sub": f"{short_date(s['start'])} to {short_date(s['end'])}" + (", and still going" if still else ""),
             "facts": [[n(r["active_days"]), "days with commits"],
                       [pct(weekend_share(d)), "of commits on weekends"]]}
@@ -1158,8 +1158,8 @@ def scene_html(b: dict, story: dict, total: int, direction: str = "a", thumb: bo
             extra = diff_lines(lines)
         if sid == "ship" and b.get("opened"):
             extra = rate_bar(b["number"], b["opened"], P2) + (diff_lines(lines[1:]) if len(lines) > 1 else "")  # the rate is drawn
-        if sid == "run" and b.get("start"):
-            extra = f'<div class="runline rise" {P2}>{year_line(story, b["start"], b["end"], P2)}</div>'
+        if sid == "run" and b.get("run_from"):  # not "start": that key is the beat's time in the film
+            extra = f'<div class="runline rise" {P2}>{year_line(story, b["run_from"], b["end"], P2)}</div>'
         if sid == "releases" and all(x.get("dates") for x in b["rows"][:3]) and b["rows"]:
             extra = release_rug(b["rows"][:3], story["year"], P2)
         elif sid in ("releases", "oss"):

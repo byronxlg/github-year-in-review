@@ -265,6 +265,18 @@ default until the test is judged.
 - **Not done.** No blind juror: the scenes are unchanged, pace is the only variable and Byron is
   judging the motion himself.
 
+## Picker reels (2026-11-05)
+
+Feedback on the tight test: "a bit too fast. Try some other options. Maybe make a video with a tonne
+of numbered transitions so I can pick the best." `tools/transition_reel.py` builds two videos from a
+story, not part of the skill's build: `transitions` plays every entry in `tools/transitions.js`
+(48, in the film's palette, some drawn from its own marks: contribution grid, punchcard dots, diff
+rows) in a numbered strip above the film frame; `pace` plays the same four beats at four paces. Slower
+paces cost beats: 17 beats run 68 s at A, 81 s at B, 92 s at C, 96 s at D, against a 78 s budget.
+The picked transition and pace then move into `PACES` and the template. Also fixed: the run beat's
+dates were overwritten by its film time, so `--story` rebuilds crashed on it (the test had filtered
+the run beat out); the dates are now `run_from`.
+
 ## Archetype
 
 Adjective from rhythm, noun from output, each with a one-line reason shown under the name:
