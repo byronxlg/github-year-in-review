@@ -275,5 +275,21 @@ class Story(unittest.TestCase):
             self.assertIn('<span class="signal">Superconductor</span>', thumb)
 
 
+class BeatGridTest(unittest.TestCase):
+    def test_parses_hyperframes_beats_and_cue_files(self):
+        self.assertEqual(build.parse_beats({"bpm": 110, "beatTimes": [0.555, 1.105]}), [0.555, 1.105])
+        self.assertEqual(build.parse_beats({"beats": [{"time": 0.5}, {"time": 1.0}]}), [0.5, 1.0])
+        self.assertEqual(build.parse_beats({}), [])
+
+    def test_no_music_means_no_grid(self):
+        self.assertEqual(build.beat_grid(None, None), [])
+
+    def test_cue_file_wins(self):
+        with tempfile.TemporaryDirectory() as d:
+            cues = Path(d) / "beats.json"
+            cues.write_text(json.dumps({"beatTimes": [0.4, 0.9]}))
+            self.assertEqual(build.beat_grid(None, cues), [0.4, 0.9])
+
+
 if __name__ == "__main__":
     unittest.main()

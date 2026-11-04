@@ -7,10 +7,9 @@ description: Turn someone's GitHub year into a short, postable year-in-review vi
 
 Your year on GitHub, as a 45-second film you can post.
 
-Sibling of `/brag`: brag turns a project into a launch video, this turns a person's year into
-one. Same rendering path (HyperFrames), same delivery (poster baked as frame 0, share copy).
-The difference is that the story is data, so the data and the beat logic ship as scripts and
-the agent's job is to check the numbers, sharpen the copy, look at the frames, and deliver.
+Rendered with HyperFrames, delivered with the poster baked as frame 0, a cover thumbnail and
+share copy. The story is data, so the data and the beat logic ship as scripts and the agent's
+job is to check the numbers, sharpen the copy, look at the frames, and deliver.
 
 ## Invocation
 
@@ -63,7 +62,7 @@ hand-edit numbers into the composition.
 
 ```bash
 python3 <skill-dir>/scripts/build.py <out>/year.json --out <out> \
-  [--music <track.mp3> --cues <track.music-cues.json>]
+  [--music <track.mp3>]
 ```
 
 This writes `<out>/story.json` (beats, copy, timings), `<out>/composition/` (the film) and
@@ -84,9 +83,11 @@ Then read `story.json` and improve the copy where you can be more specific than 
 
 Rebuild from the edited story with `--story <out>/story.json` (timings are re-derived).
 
-Music: if `/brag` is installed, its bundled tracks and cue presets work as-is
-(`<brag-dir>/assets/music/*.mp3`, `<brag-dir>/assets/music/cues/*.music-cues.json`). Prefer a
-track at least as long as the film. With `--cues`, scene starts snap to the nearest beat.
+Music: no track ships with the skill; bring one the user has the rights to post (an mp3 or
+m4a, ideally at least as long as the film). With `--music`, build.py detects the beat grid with
+`npx hyperframes beats --json <track>` and starts each scene on the nearest beat (later only,
+under 0.3 s). To reuse a grid, save that JSON and pass `--cues <beats.json>`; any file with a
+`beatTimes` or `beats` array works. If detection fails the film builds without beat sync.
 Without a track the film is silent, which is fine: LinkedIn autoplays muted.
 
 ## Step 3: Check, render, look
@@ -117,7 +118,7 @@ npx hyperframes render --quality high --output ../year-in-review.mp4
 ## Step 4: Deliver
 
 Poster: the hook's settled frame (about 2.9 s) is the thumbnail. Bake it as frame 0 so every
-platform shows it (same technique as `/brag` step 4):
+platform that uses the first frame as the preview shows a finished frame, not a fade-in:
 
 ```bash
 cd <out>
