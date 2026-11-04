@@ -4,8 +4,7 @@ A Claude Code skill that turns a GitHub user's year into a 45-second video made 
 4:5, readable with the sound off, honest about bots and private repos, and ending on who you
 were this year instead of a pile of totals.
 
-Sibling of [`/brag`](https://github.com/latent-spaces/brag) (project launch videos); same
-HyperFrames rendering path.
+Rendered with HyperFrames (`npx hyperframes`); no other skill needed.
 
 ![byronxlg 2026 poster](examples/byronxlg-2026.jpg)
 
@@ -90,9 +89,9 @@ Outputs: `year-in-review.mp4` (1080x1350), `thumbnail.png` (1080x1350, the ident
 
 ## Music
 
-No music ships with this repo. If `/brag` is installed its bundled tracks and cue presets work
-with `--music` and `--cues` (scene starts snap to the beat). Without a track the film is silent,
-which suits LinkedIn's muted autoplay.
+No music ships with this repo; bring a track you can post. With `--music`, the build detects
+beats with `npx hyperframes beats` and starts scenes on the beat. Without a track the film is
+silent, which suits LinkedIn's muted autoplay.
 
 ## Tests
 

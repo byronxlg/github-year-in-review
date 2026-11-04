@@ -69,7 +69,7 @@ badges and tiers, language percentages to two decimals.
 - **File**: MP4, H.264, AAC. Organic limit is far above any short video (5 GB); keep it small
   anyway (under 50 MB) for fast processing. [compresto][compresto]
 - **Thumbnail**: LinkedIn's post editor accepts a custom thumbnail; elsewhere frame 0 is the
-  thumbnail, so frame 0 should be a finished, postable frame (brag's poster-bake technique).
+  thumbnail, so frame 0 should be a finished, postable frame (bake the poster in as frame 0).
 
 ## Implications (fed into design.md)
 

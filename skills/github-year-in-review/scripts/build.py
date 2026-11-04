@@ -2,7 +2,10 @@
 """Turn year.json into story.json and a HyperFrames composition.
 
     python3 build.py year.json --out <output-dir> [--story story.json] [--music track.mp3]
-                     [--cues track.music-cues.json] [--cta "Make yours: ..."]
+                     [--cues beats.json] [--cta "Make yours: ..."]
+
+With --music and no --cues, the beat grid comes from `npx hyperframes beats --json <track>`;
+if that is unavailable the film is built without beat sync.
 
 Writes <output-dir>/story.json (the beats, copy and timings; edit it and pass it back with
 --story to override copy) and <output-dir>/composition/ (index.html, fonts, music).
@@ -19,6 +22,7 @@ import hashlib
 import math
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -385,6 +389,28 @@ def snap_times(beats: list[dict], beat_grid: list[float]) -> None:
         b["duration"] = round(nxt - b["start"], 3)
 
 
+def parse_beats(data: dict) -> list[float]:
+    """Beat times from `hyperframes beats --json` (beatTimes) or a cue file with a beats array."""
+    grid = data.get("beatTimes") or data.get("beats") or []
+    return [float(x["time"] if isinstance(x, dict) else x) for x in grid]
+
+
+def beat_grid(music: Path | None, cues: Path | None) -> list[float]:
+    if cues and cues.exists():
+        return parse_beats(json.loads(cues.read_text()))
+    if not (music and music.exists()):
+        return []
+    try:
+        r = subprocess.run(["npx", "--no-install", "hyperframes", "beats", "--json", str(music)],
+                           capture_output=True, text=True, timeout=180)
+        if r.returncode == 0:
+            return parse_beats(json.loads(r.stdout))
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        pass
+    print("beat detection unavailable; building without beat sync", file=sys.stderr)
+    return []
+
+
 # --------------------------------------------------------------------------- html
 
 E = html.escape
@@ -639,10 +665,7 @@ def build(story: dict, out: Path, music: Path | None, cues: Path | None, directi
         b["index"] = i + 1
         b.setdefault("cmd", COMMANDS[b["id"]].format(user=story["user"], year=story["year"]))
     scenes = plan_scenes(story, direction)
-    grid = []
-    if cues and cues.exists():
-        grid = json.loads(cues.read_text()).get("beats", [])
-        grid = [x["time"] if isinstance(x, dict) else x for x in grid]
+    grid = beat_grid(music, cues)
     snap_times(scenes, grid)
     for s in scenes:
         if s["beat"] is not None:
@@ -768,7 +791,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", required=True)
     p.add_argument("--story", help="edited story.json to build from instead of regenerating")
     p.add_argument("--music")
-    p.add_argument("--cues", help="music cue JSON with a beats array, to start scenes on the beat")
+    p.add_argument("--cues", help="beat JSON (hyperframes beats --json output, or a beats array) to start scenes on the beat; detected from --music when omitted")
     p.add_argument("--cta", default=CTA)
     p.add_argument("--direction", choices=["a", "b"], default=DIRECTION)
     a = p.parse_args(argv)
