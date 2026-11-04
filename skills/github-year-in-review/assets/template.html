@@ -645,6 +645,8 @@
       const TIMING = /*__TIMING__*/[];
       const TOTAL = Number(document.getElementById("root").dataset.duration);
       const tl = gsap.timeline({ paused: true });
+      const PACE = /*__PACE__*/{ speed: 1, fadeIn: 0.3, fadeOut: 0.35 };
+      const d = (x) => x * PACE.speed;
       const fmt = (v) => Math.round(v).toLocaleString("en-US");
 
       TIMING.forEach((s, si) => {
@@ -652,7 +654,7 @@
         const inner = scene.querySelector(".inner");
         const at = (x) => s.start + x;
         const end = s.start + s.duration;
-        if (si > 0) tl.fromTo(inner, { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "power1.out" }, s.start);
+        if (si > 0) tl.fromTo(inner, { opacity: 0 }, { opacity: 1, duration: PACE.fadeIn, ease: "power1.out" }, s.start);
         // Phase 0: type the command, then the cursor goes (no blinking during the hold).
         if (s.type_dur > 0) {
           const cmd = scene.querySelector(".cmd");
@@ -673,19 +675,19 @@
             const to = Number(el.dataset.to);
             const from = Number(el.dataset.from || 0);
             const proxy = { v: from };
-            if (s.id !== "hook") tl.fromTo(el, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.45, ease: "power3.out" }, at(s.t1));
+            if (s.id !== "hook") tl.fromTo(el, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: d(0.45), ease: "power3.out" }, at(s.t1));
             tl.fromTo(proxy, { v: from }, {
-              v: to, duration: 1.2, ease: "power2.out",
+              v: to, duration: d(1.2), ease: "power2.out",
               onUpdate: () => { el.textContent = (el.dataset.sign || "") + fmt(proxy.v) + (el.classList.contains("pct") ? "%" : ""); },
             }, at(s.t1));
           } else {
-            tl.fromTo(el, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, at(s.t1 + Math.min(k, 3) * 0.08));
+            tl.fromTo(el, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: d(0.5), ease: "power3.out" }, at(s.t1 + Math.min(k, 3) * 0.08));
           }
         });
         if (s.id === "shape") {
           scene.querySelectorAll(".mrow").forEach((row, m) => {
             tl.fromTo(row.querySelectorAll(".c"), { opacity: 0 }, {
-              opacity: 1, duration: 0.3, ease: "power1.out", stagger: 0.008,
+              opacity: 1, duration: d(0.3), ease: "power1.out", stagger: d(0.008),
             }, at(s.t1 + 0.1 + m * 0.08));
           });
           const peak = scene.querySelector(".mrow.peak");
@@ -693,33 +695,33 @@
             const hl = document.createElement("div");
             hl.className = "hl";
             peak.appendChild(hl);
-            tl.fromTo(hl, { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power1.out" }, at(s.t2));
-            tl.to([...scene.querySelectorAll(".mrow")].filter((r) => r !== peak), { opacity: 0.45, duration: 0.4 }, at(s.t2));
+            tl.fromTo(hl, { opacity: 0 }, { opacity: 1, duration: d(0.4), ease: "power1.out" }, at(s.t2));
+            tl.to([...scene.querySelectorAll(".mrow")].filter((r) => r !== peak), { opacity: 0.45, duration: d(0.4) }, at(s.t2));
           }
         }
         if (s.id === "clock") {
-          tl.fromTo(scene.querySelectorAll(".hb .bar"), { scaleY: 0 }, { scaleY: 1, duration: 0.5, ease: "power3.out", stagger: 0.03 }, at(s.t1 + 0.1));
+          tl.fromTo(scene.querySelectorAll(".hb .bar"), { scaleY: 0 }, { scaleY: 1, duration: d(0.5), ease: "power3.out", stagger: d(0.03) }, at(s.t1 + 0.1));
         }
         if (s.id === "work") {
           scene.querySelectorAll(".wbar").forEach((bar, k) => {
-            tl.fromTo(bar, { scaleX: 0 }, { scaleX: 1, duration: 0.8, ease: "power3.out" }, at(s.t1 + 0.2 + k * 0.12));
+            tl.fromTo(bar, { scaleX: 0 }, { scaleX: 1, duration: d(0.8), ease: "power3.out" }, at(s.t1 + 0.2 + k * 0.12));
           });
         }
         if (s.id === "close") {
-          tl.fromTo(scene.querySelectorAll(".mini .c"), { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "none", stagger: { each: 0.0012, from: "start" } }, at(s.t1));
+          tl.fromTo(scene.querySelectorAll(".mini .c"), { opacity: 0 }, { opacity: 1, duration: d(0.3), ease: "none", stagger: { each: d(0.0012), from: "start" } }, at(s.t1));
         }
         // Phase 2: the supporting group, one short stagger, then nothing moves.
         scene.querySelectorAll('[data-p="2"]').forEach((el, k) => {
-          tl.fromTo(el, { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, at(s.t2 + k * 0.15));
+          tl.fromTo(el, { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: d(0.55), ease: "power3.out" }, at(s.t2 + k * 0.15));
           const bars = el.querySelectorAll(".rbar");
-          if (bars.length) tl.fromTo(bars, { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: "power3.out", stagger: 0.12 }, at(s.t2 + k * 0.15));
+          if (bars.length) tl.fromTo(bars, { scaleX: 0 }, { scaleX: 1, duration: d(0.7), ease: "power3.out", stagger: d(0.12) }, at(s.t2 + k * 0.15));
           const cols = el.querySelectorAll(".cbar");
-          if (cols.length) tl.fromTo(cols, { scaleY: 0 }, { scaleY: 1, duration: 0.5, ease: "power3.out", stagger: 0.03 }, at(s.t2 + k * 0.15));
+          if (cols.length) tl.fromTo(cols, { scaleY: 0 }, { scaleY: 1, duration: d(0.5), ease: "power3.out", stagger: d(0.03) }, at(s.t2 + k * 0.15));
           // unit charts fill square by square; the run grows day by day; releases tick in order
           const units = el.querySelectorAll(".w, .yline .t.r");
-          if (units.length) tl.fromTo(units, { opacity: 0 }, { opacity: 1, duration: 0.2, ease: "none", stagger: Math.min(0.012, 0.8 / units.length) }, at(s.t2 + k * 0.15 + 0.1));
+          if (units.length) tl.fromTo(units, { opacity: 0 }, { opacity: 1, duration: d(0.2), ease: "none", stagger: d(Math.min(0.012, 0.8 / units.length)) }, at(s.t2 + k * 0.15 + 0.1));
         });
-        if (si < TIMING.length - 1) tl.to(inner, { opacity: 0, duration: 0.35, ease: "power1.in" }, end - 0.38);
+        if (si < TIMING.length - 1 && PACE.fadeOut > 0) tl.to(inner, { opacity: 0, duration: PACE.fadeOut, ease: "power1.in" }, end - PACE.fadeOut - 0.03);
       });
       window.__timelines["main"] = tl;
     </script>

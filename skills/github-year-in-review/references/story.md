@@ -18,7 +18,8 @@ the recurring object: drawn in beat 2, returned as the closing image.
 it, in film order. **Mandatory** beats are in every film that has their data and are never cut
 for time. **Optional** beats must pass their eligibility rule, then compete on score: beats that
 share a slot are alternatives and only the higher score plays; the rest are taken best first
-until the estimated beats fill `MAX_TOTAL` (78 s; chapter cards come on top). The film keeps
+until the estimated beats fill `MAX_TOTAL` (78 s; chapter cards come on top; `--pace tight` has none and
+its beats are about 0.56 as long). A score of 0 never plays. The film keeps
 this order whatever the scores.
 
 Scores run 0 to 1: a weight for how much the beat says in general, times the strength of this

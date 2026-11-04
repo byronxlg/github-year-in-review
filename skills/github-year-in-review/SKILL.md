@@ -81,6 +81,10 @@ surprise or busiest day, lines or biggest change) keep only the higher score, an
 taken until the time budget is full. The film's order is fixed by the catalogue, not the scores.
 A quiet year makes a shorter film, not an empty one.
 
+**Pace.** `--pace tight` (test, not yet the default) drops the chapter cards, cuts between beats,
+runs motion at 0.6 speed and holds 2.5 s, so about 17 beats fit where calm fits 11. `--story`
+rebuilds keep the pace unless you pass it again.
+
 **Review the selection.** `story.json` has `selection.chosen` and `selection.left_out`, each
 with its score and, for those left out, the reason. Ask whether the film is the best one for this
 person: a left-out beat may say more about them than a chosen one (a new maintainer's open
