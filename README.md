@@ -14,8 +14,9 @@ Thumbnail: [examples/byronxlg-2026-thumbnail.png](examples/byronxlg-2026-thumbna
 ## What the film shows
 
 Three chapter cards (the rhythm, the work, what shipped) type the shell command that would
-answer that section (`git log --since=...`, `git shortlog -sn`, `git tag`); beats carry a
-commit-hash style label. The last frame has no slide counter or progress rail.
+answer that section (`git log --since=...`, `git shortlog -sn`, `git tag`); beats carry the
+section name only. Nothing is numbered: no slide counter, hash label, part numbers or progress
+ticks. The last frame has no label or rail.
 
 Always there:
 

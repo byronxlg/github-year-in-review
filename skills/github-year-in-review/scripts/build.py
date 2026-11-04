@@ -18,7 +18,6 @@ import argparse
 import datetime as dt
 import html
 import json
-import hashlib
 import math
 import re
 import shutil
@@ -451,11 +450,6 @@ def year_grid(story: dict, peak_month: int | None, cls: str = "grid") -> str:
     return f'<div class="{cls}">{"".join(rows)}</div>'
 
 
-def short_hash(*parts: object) -> str:
-    """A commit-hash style label, stable for the same user, year and beat."""
-    return hashlib.sha1("/".join(map(str, parts)).encode()).hexdigest()[:7]
-
-
 def diff_lines(lines: list[tuple[str, str]], cls: str = "hunk") -> str:
     """A unified-diff style block: ('+'|'-'|'@'|' ', text) per line. Lines are supporting motion."""
     kind = {"+": "add", "-": "del", "@": "hdr", " ": "ctx"}
@@ -472,10 +466,10 @@ def scene_html(b: dict, story: dict, total: int, direction: str = "a", thumb: bo
     the marks into times so the phases never overlap. thumb=True is the chrome-free still."""
     i, sid = b["index"], b["id"]
     cmd = b.get("cmd") or COMMANDS[sid].format(user=story["user"], year=story["year"])
-    label = (f'<div class="label"><span class="idx">{short_hash(story["user"], story["year"], sid)}</span>'
-             f'<span class="ct">{i:02d}/{total:02d}</span><span>{E(b["label"])}</span></div>')
+    # The section name only: no slide counter, no hash, no part numbers anywhere in the film.
+    label = f'<div class="label"><span>{E(b["label"])}</span></div>'
     if sid == "close":
-        label = ""  # the last frame carries no slide number or hash
+        label = ""  # the last frame is the cover: no label
     if thumb:
         head = ""
     elif direction == "a":
@@ -615,7 +609,7 @@ def term_size(cmd: str, base: int, width: int = 912) -> int:
 
 def chapter_html(ch: dict) -> str:
     """Direction B: the terminal as a chapter card between sections."""
-    return (f'<div class="inner chapter"><div class="label"><span class="idx">part {ch["part"]} of {ch["parts"]}</span></div>'
+    return (f'<div class="inner chapter">'
             f'<div class="stack"><div class="term" style="font-size:{term_size(ch["cmd"], 40)}px"><span class="ps">~ $</span><span class="cmd" data-cmd="{E(ch["cmd"])}">'
             f'</span><i class="cur"></i></div><div class="arch rise" data-p="2">{E(ch["title"])}</div></div></div>')
 
@@ -694,7 +688,6 @@ def build(story: dict, out: Path, music: Path | None, cues: Path | None, directi
             .replace("__ROOT_CLASS__", "dir-" + direction)
             .replace("__HANDLE__", E("@" + story["user"]))
             .replace("__YEAR__", E(story["year_label"]))
-            .replace("__BEATS__", str(len(beats)))
             .replace("<!--__SCENES__-->", html_scenes)
             .replace("<!--__AUDIO__-->", audio)
             .replace("/*__TIMING__*/[]", json.dumps(timing)))
