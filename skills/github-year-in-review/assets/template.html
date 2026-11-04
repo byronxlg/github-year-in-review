@@ -202,45 +202,8 @@
       .rows .dl span { color: var(--ink); font-size: 34px; }
       .rows .dl em { margin-left: auto; font-style: normal; color: var(--muted); font-size: 28px; }
       .plus { font-style: normal; color: var(--add); margin-right: 18px; font-family: "JBMono", monospace; font-weight: 700; }
-      /* agents: trailers, like the bottom of a commit message */
-      .trailers {
-        margin-top: 34px;
-        padding: 22px 0 6px 28px;
-        border-left: 4px solid var(--rule);
-        display: flex;
-        flex-direction: column;
-        gap: 20px;
-        max-width: 912px;
-      }
-      .tr {
-        display: flex;
-        flex-wrap: wrap;
-        column-gap: 16px;
-        row-gap: 12px;
-        align-items: baseline;
-        font-size: 32px;
-        white-space: nowrap;
-      }
-      .tr .tk { color: var(--muted); }
-      .tr b { color: var(--ink); font-weight: 600; }
-      .tr .tb {
-        order: 3;
-        flex: 0 0 100%;
-        display: block;
-        height: 10px;
-        background: var(--rule);
-        border-radius: 3px;
-        overflow: hidden;
-      }
-      .tr .tbar {
-        display: block;
-        height: 100%;
-        background: var(--signal);
-        transform-origin: 0 50%;
-      }
       .agents .unit { font-size: 60px; }
       .agents .sub, .agents .note { font-size: 38px; }
-      .tr em { margin-left: auto; font-style: normal; color: var(--signal); font-weight: 700; }
       /* the biggest change */
       .ref { font-size: 32px; color: var(--signal); }
       .ref span { color: var(--muted); margin-left: 14px; }
@@ -565,6 +528,50 @@
         letter-spacing: 0.02em;
         color: var(--ink);
       }
+      /* v6 charts: the shape of each question */
+      .wrow { display: flex; align-items: center; gap: 60px; margin-top: 44px; }
+      .waffle { display: grid; grid-template-columns: repeat(10, 44px); gap: 7px; }
+      .w { display: block; aspect-ratio: 1; border-radius: 4px; }
+      .w.o { background: #3a3530; }
+      .legend { display: flex; flex-direction: column; gap: 22px; min-width: 330px; }
+      .lg { display: flex; align-items: center; gap: 16px; font-size: 34px; white-space: nowrap; }
+      .lg i { width: 30px; height: 30px; border-radius: 5px; flex: none; }
+      .lg.rest i { box-shadow: inset 0 0 0 3px #6b6157; }
+      .lg b { color: var(--ink); font-weight: 600; }
+      .lg.rest b { color: var(--muted); font-weight: 500; }
+      .lg em { margin-left: auto; padding-left: 24px; font-style: normal; color: var(--ink); font-weight: 700; }
+      .lg.rest em { color: var(--muted); }
+      .runline { margin-top: 70px; width: 912px; }
+      .yline { display: flex; align-items: flex-end; height: 130px; }
+      .yline .t { flex: 1; display: block; transform-origin: 50% 100%; }
+      .yline .t.z { height: 12px; background: var(--rule); }
+      .yline .t.f { height: 12px; background: var(--rule); opacity: 0.4; }
+      .yline .t.a { height: 54px; background: #5a5047; }
+      .yline .t.r { height: 130px; background: var(--signal); }
+      .ymonths { display: flex; margin-top: 14px; font-size: 26px; color: var(--muted); }
+      .ymonths span { flex: 1; }
+      .ykey { display: flex; gap: 40px; margin-top: 22px; font-size: 26px; color: var(--muted); }
+      .ykey i { display: inline-block; width: 22px; height: 22px; border-radius: 3px; margin-right: 12px; vertical-align: -3px; }
+      .ykey .kr { background: var(--signal); }
+      .ykey .ka { background: #5a5047; }
+      .rugs { margin-top: 40px; width: 912px; }
+      .nw { white-space: nowrap; }
+      .sub, .dl { text-wrap: balance; }
+      .hb .bar { position: relative; }
+      .hb.peak .bar span { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 10px; font-size: 26px; color: var(--signal); font-weight: 700; white-space: nowrap; }
+      .rate { margin-top: 48px; width: 912px; }
+      .rtrack { height: 64px; background: var(--rule); border-radius: 6px; overflow: hidden; }
+      .rbar { display: block; height: 100%; background: var(--signal); transform-origin: 0 50%; }
+      .rlab { display: flex; justify-content: space-between; margin-top: 16px; font-size: 32px; color: var(--muted); }
+      .rlab b { color: var(--ink); }
+      .rate + .hunk { margin-top: 34px; }
+      .rcols { display: flex; align-items: stretch; border-bottom: 0; }
+      .rc { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+      .rs { display: grid; direction: rtl; align-content: end; grid-auto-flow: row; transform: scaleY(-1); }
+      .rs .w { transform: scaleY(-1); }
+      .rc span { margin-top: 12px; padding-top: 10px; width: 100%; text-align: center; font-size: 26px; color: var(--muted); border-top: 2px solid var(--rule); }
+      .rkeys { margin-top: 30px; gap: 16px; }
+      .rkeys .lg em { margin-left: 0; color: var(--muted); font-weight: 500; }
     </style>
   </head>
   <body>
@@ -649,8 +656,11 @@
         // Phase 2: the supporting group, one short stagger, then nothing moves.
         scene.querySelectorAll('[data-p="2"]').forEach((el, k) => {
           tl.fromTo(el, { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, at(s.t2 + k * 0.15));
-          const bar = el.querySelector(".tbar");
-          if (bar) tl.fromTo(bar, { scaleX: 0 }, { scaleX: 1, duration: 0.55, ease: "power3.out" }, at(s.t2 + k * 0.15));
+          const bar = el.querySelector(".rbar");
+          if (bar) tl.fromTo(bar, { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: "power3.out" }, at(s.t2 + k * 0.15));
+          // unit charts fill square by square; the run grows day by day; releases tick in order
+          const units = el.querySelectorAll(".w, .yline .t.r");
+          if (units.length) tl.fromTo(units, { opacity: 0 }, { opacity: 1, duration: 0.2, ease: "none", stagger: Math.min(0.012, 0.8 / units.length) }, at(s.t2 + k * 0.15 + 0.1));
         });
         if (si < TIMING.length - 1) tl.to(inner, { opacity: 0, duration: 0.35, ease: "power1.in" }, end - 0.38);
       });

@@ -1233,7 +1233,7 @@
     ],
     [
       "2026-11-04",
-      45
+      51
     ]
   ],
   "beats": [
@@ -1241,7 +1241,7 @@
       "id": "hook",
       "label": "GitHub, 2026 so far",
       "name": "Byron Smith",
-      "number": 5052,
+      "number": 5058,
       "unit": "contributions",
       "line": "on GitHub, across 18 repos and 120 active days.",
       "index": 1,
@@ -1271,6 +1271,8 @@
       "label": "The longest run",
       "number": 45,
       "unit": "days in a row",
+      "start": 16.3,
+      "end": "2026-11-04",
       "sub": "Sep 21 to Nov 4, and still going",
       "facts": [
         [
@@ -1283,9 +1285,8 @@
         ]
       ],
       "index": 3,
-      "duration": 5.8,
-      "cmd": "git log --format=%as | uniq | longest-run",
-      "start": 16.3
+      "duration": 6.4,
+      "cmd": "git log --format=%as | uniq | longest-run"
     },
     {
       "id": "clock",
@@ -1322,7 +1323,7 @@
       "index": 4,
       "duration": 5.9,
       "cmd": "git log --date=format:%H --format=%ad | uniq -c",
-      "start": 22.1
+      "start": 22.7
     },
     {
       "id": "work",
@@ -1356,9 +1357,9 @@
       "lead": "Twenty days of an unattended AI-native SDLC",
       "lead_name": "unattended",
       "index": 5,
-      "duration": 5.9,
+      "duration": 6.35,
       "cmd": "git shortlog -sn",
-      "start": 32.267
+      "start": 32.867
     },
     {
       "id": "agents",
@@ -1368,11 +1369,11 @@
       "rows": [
         {
           "trailer": "Claude Opus 5.5",
-          "share": 0.406
+          "share": 0.408
         },
         {
           "trailer": "Claude Opus 4.8",
-          "share": 0.336
+          "share": 0.335
         },
         {
           "trailer": "Claude Opus 4.6",
@@ -1380,25 +1381,26 @@
         }
       ],
       "trend": "",
-      "prs": "349 pull requests opened with Claude Code.",
-      "auto": "Your cron's 2,681 commits are counted separately.",
-      "sub": "349 pull requests opened with Claude Code.",
+      "prs": "350 pull requests opened with Claude Code.",
+      "auto": "Your cron's 2,685 commits are counted separately.",
+      "sub": "350 pull requests opened with Claude Code.",
       "index": 6,
-      "duration": 6.25,
+      "duration": 6.55,
       "cmd": "git log --format='%(trailers:key=Co-authored-by)'",
-      "start": 38.167
+      "start": 39.217
     },
     {
       "id": "ship",
       "label": "What landed",
-      "number": 1212,
+      "number": 1213,
       "unit": "pull requests merged",
-      "sub": "90% of the 1,343 opened. 57 reviews given.",
+      "opened": 1344,
+      "sub": "90% of the 1,344 opened. 57 reviews given.",
       "ext": "Including one into xpaysh/awesome-x402, 301 stars.",
       "index": 7,
       "duration": 5.95,
       "cmd": "gh pr list --author @me --state merged",
-      "start": 44.417
+      "start": 45.767
     },
     {
       "id": "releases",
@@ -1409,19 +1411,67 @@
         {
           "tag": "v2.9.0",
           "repo": "skillfold",
-          "count": 42
+          "count": 42,
+          "dates": [
+            "2026-03-19",
+            "2026-03-19",
+            "2026-03-19",
+            "2026-03-19",
+            "2026-03-20",
+            "2026-03-20",
+            "2026-03-20",
+            "2026-03-20",
+            "2026-03-20",
+            "2026-03-20",
+            "2026-03-20",
+            "2026-03-20",
+            "2026-03-20",
+            "2026-03-20",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-03-21",
+            "2026-07-06",
+            "2026-07-26",
+            "2026-09-08",
+            "2026-09-08",
+            "2026-09-08",
+            "2026-09-08",
+            "2026-09-26",
+            "2026-09-26",
+            "2026-10-23"
+          ]
         },
         {
           "tag": "v0.1.1",
           "repo": "polymarket-tui",
-          "count": 2
+          "count": 2,
+          "dates": [
+            "2026-07-06",
+            "2026-07-06"
+          ]
         }
       ],
-      "sub": "skillfold went from v0.1.0 to v2.9.0.",
+      "sub": "33 of them in 3 days in March.",
       "index": 8,
-      "duration": 6.1,
+      "duration": 6.4,
       "cmd": "git tag --sort=-creatordate",
-      "start": 54.367
+      "start": 55.717
     },
     {
       "id": "identity",
@@ -1431,7 +1481,7 @@
       "index": 9,
       "duration": 5.3,
       "cmd": "whoami",
-      "start": 60.467
+      "start": 62.117
     },
     {
       "id": "close",
@@ -1442,7 +1492,7 @@
       "index": 10,
       "duration": 6.0,
       "cmd": "git commit -m \"2026, in review\"",
-      "start": 65.767
+      "start": 67.417
     }
   ],
   "direction": "b"
