@@ -152,6 +152,21 @@ def archetype(d: dict) -> dict:
     return {"name": f"The {adj} {noun}", "reason": f"{why_n[0].upper()}{why_n[1:]}, {why_a}."}
 
 
+def burst_line(rel: dict) -> str:
+    """The biggest three-day burst of releases, when it is most of the story."""
+    dates = sorted(dt.date.fromisoformat(x) for r in rel.get("repos", []) for x in r.get("dates") or [])
+    best, at = 0, None
+    for i, d0 in enumerate(dates):
+        k = sum(1 for d in dates[i:] if (d - d0).days < 3)
+        if k > best:
+            best, at = k, d0
+    if at is None or best < 5 or best < 0.4 * len(dates):
+        return ""
+    span = (max(d for d in dates if 0 <= (d - at).days < 3) - at).days + 1
+    when = f"in {span} days in {MONTHS[at.month - 1]}" if span > 1 else f"on {short_date(at.isoformat())}"
+    return f"{best} of them {when}."
+
+
 def make_story(d: dict, cta: str) -> dict:
     u, p, t, r, pr = d["user"], d["period"], d["totals"], d["rhythm"], d["pull_requests"]
     year_label = f"{p['year']} so far" if p["partial"] else str(p["year"])
@@ -190,7 +205,7 @@ def make_story(d: dict, cta: str) -> dict:
         still = s["end"] == p["to"] and s["current"] == s["longest"]
         beats.append({
             "id": "run", "label": "The longest run",
-            "number": s["longest"], "unit": "days in a row",
+            "number": s["longest"], "unit": "days in a row", "start": s["start"], "end": s["end"],
             "sub": f"{short_date(s['start'])} to {short_date(s['end'])}" + (", and still going" if still else ""),
             "facts": [[n(r["active_days"]), "days with commits"],
                       [pct(weekend_share(d)), "of commits on weekends"]],
@@ -269,7 +284,7 @@ def make_story(d: dict, cta: str) -> dict:
             ext_line = f"{n(pr['external_merged'])} of them into other people's repos."
         beats.append({
             "id": "ship", "label": "What landed",
-            "number": pr["merged"], "unit": "pull requests merged",
+            "number": pr["merged"], "unit": "pull requests merged", "opened": pr["opened"],
             "sub": f"{pct(pr['merge_rate'])} of the {n(pr['opened'])} opened. {n(t['reviews'])} reviews given.",
             "ext": ext_line,
         })
@@ -293,9 +308,10 @@ def make_story(d: dict, cta: str) -> dict:
         beats.append({
             "id": "releases", "label": "Shipped to users",
             "number": rel["total"], "unit": "releases tagged" if rel["total"] != 1 else "release tagged",
-            "rows": [{"tag": x["latest"], "repo": x["repo"], "count": x["count"]} for x in named[:3]],
-            "sub": (f"{lead['repo']} went from {lead['first']} to {lead['latest']}." if lead and lead["first"] != lead["latest"]
-                    else f"Across {plural(len(rel['repos']), 'project')}."),
+            "rows": [{"tag": x["latest"], "repo": x["repo"], "count": x["count"], "dates": x.get("dates") or []}
+                     for x in named[:3]],
+            "sub": (burst_line(rel) or (f"{lead['repo']} went from {lead['first']} to {lead['latest']}." if lead and lead["first"] != lead["latest"]
+                    else f"Across {plural(len(rel['repos']), 'project')}.")),
         })
 
     # 7 started
@@ -460,6 +476,99 @@ def diff_lines(lines: list[tuple[str, str]], cls: str = "hunk") -> str:
     return f'<div class="{cls}">{"".join(out)}</div>'
 
 
+# v6 charts. Each beat's chart takes the shape of its question: a part of a whole is a waffle
+# (one square, one percent: the ledger's own unit), a run is a stretch of the year line, a rate
+# is one filled bar, a cadence is squares stacked by month. The hours stay a 24-bar histogram:
+# the juror read it faster than a 24-hour dial.
+FILLS = ["var(--signal)", "#ffb08c", "#a3431f", "#8f7b6c"]  # signal, then light, dark, taupe: told apart by lightness
+DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+
+def alloc(total: int, shares: list[float]) -> list[int]:
+    """Split total whole units by shares (largest remainder), so the parts add up exactly."""
+    tot = sum(shares) or 1
+    raw = [total * x / tot for x in shares]
+    base = [int(x) for x in raw]
+    for i in sorted(range(len(raw)), key=lambda i: base[i] - raw[i])[: total - sum(base)]:
+        base[i] += 1
+    return base
+
+
+def agent_parts(b: dict, team: str = "Claude") -> list[tuple[str, int]]:
+    """The agents share as whole percents of all commits, per model (top 3 and the rest)."""
+    rows = b["rows"][:3]
+    names = [x["trailer"] for x in rows]
+    shares = [x["share"] for x in rows]
+    rest = 1 - sum(shares)
+    if rest >= 0.01:
+        names.append("others")
+        shares.append(rest)
+    prefix = team + " "
+    if all(x.startswith(prefix) or x == "others" for x in names):
+        names = [x[len(prefix):] if x.startswith(prefix) else x for x in names]
+    return [(nm, k) for nm, k in zip(names, alloc(b["number"], shares)) if k > 0]
+
+
+def legend(parts: list[tuple[str, int]], P2: str, rest: str | None = None) -> str:
+    rows = "".join(f'<div class="lg"><i style="background:{FILLS[min(k, 3)]}"></i><b>{E(nm)}</b><em>{v}%</em></div>'
+                   for k, (nm, v) in enumerate(parts))
+    if rest:
+        rows += f'<div class="lg rest"><i></i><b>{E(rest)}</b><em>{100 - sum(v for _, v in parts)}%</em></div>'
+    return f'<div class="legend rise" {P2}>{rows}</div>'
+
+
+def waffle(lit: list[int], P2: str, cls: str = "waffle") -> str:
+    """10 x 10 squares, one per percent, filled row by row in the order of lit (counts per fill)."""
+    cells = []
+    for k, cnt in enumerate(lit):
+        cells += [f'<i class="w" style="background:{FILLS[min(k, 3)]}"></i>'] * cnt
+    cells += ['<i class="w o"></i>'] * (100 - len(cells))
+    return f'<div class="{cls}" {P2}>{"".join(cells[:100])}</div>'
+
+
+def year_line(story: dict, start: str, end: str, P2: str) -> str:
+    """Every day of the year as one tick: active days stand up, the run is one solid block."""
+    cal = {date: c for date, c in story["calendar"]}
+    year = story["year"]
+    ticks = []
+    d0 = dt.date(year, 1, 1)
+    for k in range(366 if (year % 4 == 0 and year % 100) or year % 400 == 0 else 365):
+        date = (d0 + dt.timedelta(days=k)).isoformat()
+        c = cal.get(date)
+        cls = "f" if c is None else ("r" if start <= date <= end else ("a" if c > 0 else "z"))
+        ticks.append(f'<i class="t {cls}"></i>')
+    months = "".join(f'<span style="flex:{DAYS[k]}">{m[:1]}</span>' for k, m in enumerate(MONTHS))
+    key = ('<div class="ykey"><span><i class="kr"></i>the run</span><span><i class="ka"></i>other days with commits</span></div>')
+    return f'<div class="yline">{"".join(ticks)}</div><div class="ymonths">{months}</div>{key}'
+
+
+def rate_bar(merged: int, opened: int, P2: str) -> str:
+    w = 100 * merged / (opened or 1)
+    return (f'<div class="rate rise" {P2}><div class="rtrack"><i class="bar rbar" style="width:{w:.1f}%"></i></div>'
+            f'<div class="rlab"><span><b>{round(w)}%</b> merged</span><span>of {n(opened)} opened</span></div></div>')
+
+
+def release_rug(rows: list[dict], year: int, P2: str, per_row: int = 3, sq: int = 20, gap: int = 4) -> str:
+    """One square per release, stacked in the month it shipped, coloured by project: a unit
+    column chart on a year axis, so a burst of releases reads as a tall column, not one tick."""
+    months: dict[int, list[int]] = {}
+    for k, x in enumerate(rows):
+        for d in x["dates"]:
+            months.setdefault(int(d[5:7]) - 1, []).append(k)
+    tall = max((-(-len(v) // per_row) for v in months.values()), default=1)
+    cols = []
+    for m in range(12):
+        cells = "".join(f'<i class="w" style="background:{FILLS[0] if k == 0 else FILLS[1]}"></i>'
+                        for k in sorted(months.get(m, [])))
+        cols.append(f'<div class="rc"><div class="rs" style="grid-template-columns:repeat({per_row},{sq}px);gap:{gap}px">{cells}</div>'
+                    f'<span>{MONTHS[m][:1]}</span></div>')
+    keys = "".join(f'<div class="lg"><i style="background:{FILLS[0] if k == 0 else FILLS[1]}"></i><b>{E(x["repo"])}</b>'
+                   f'<em>{plural(x["count"], "release")}</em></div>' for k, x in enumerate(rows))
+    return (f'<div class="rugs rise" {P2}><div class="rcols" style="height:{tall * (sq + gap) + 44}px">{"".join(cols)}</div>'
+            f'<div class="legend rkeys">{keys}</div></div>')
+
+
+
 def scene_html(b: dict, story: dict, total: int, direction: str = "a", thumb: bool = False) -> str:
     """One beat as HTML. Motion is marked, not timed: data-p="1" is the hero (lands first),
     data-p="2" is the supporting group (enters after the hero settles). beat_timing() turns
@@ -497,18 +606,16 @@ def scene_html(b: dict, story: dict, total: int, direction: str = "a", thumb: bo
         <div class="caption rise" {P2}>{E(b['caption'])}</div>
       </div>"""
     elif sid == "agents":
-        rows = "".join(
-            f'<div class="tr rise" {P2}><span class="tk">Co-authored-by:</span>'
-            f'<b>{E(x["trailer"])}</b><i class="tb"><i class="bar tbar" style="width:{max(3, 100 * x["share"]):.1f}%"></i></i>'
-            f'<em>{pct(x["share"])}</em></div>'
-            for x in b["rows"][:3])
+        team = b["unit"].rsplit(" with ", 1)[-1] if " with " in b["unit"] else "Claude"
+        parts = agent_parts(b, team)
         note = b.get("prs") or b.get("auto") or b.get("sub")
         num = f'{b["number"]}%'
+        chart = f'<div class="wrow">{waffle([v for _, v in parts], P2)}{legend(parts, P2, rest="you, solo")}</div>'
         body = f"""
       <div class="stack agents">
-        <div class="big signal count pct" {P1} data-to="{b['number']}" data-from="0" style="font-size:{big_size(num, 320)}px">{num}</div>
+        <div class="big signal count pct" {P1} data-to="{b['number']}" data-from="0" style="font-size:{big_size(num, 250)}px">{num}</div>
         <div class="unit rise" {P1}>{E(b['unit'])}</div>
-        <div class="trailers">{rows}</div>
+        {chart}
         {f'<div class="sub ink rise" {P2}>{E(note)}</div>' if note else ''}
       </div>"""
     elif sid == "diff":
@@ -529,9 +636,17 @@ def scene_html(b: dict, story: dict, total: int, direction: str = "a", thumb: bo
         extra = ""
         if sid == "ship":
             first = [x.strip() for x in re.split(r"(?<=\.)\s+", b["sub"]) if x.strip()][:1]
-            lines = [("+", E(x)) for x in first + ([b["ext"]] if b.get("ext") else [])]
+            # one text box per line (the line is a flex row); hyphenated names never break
+            lines = [("+", "<span>" + re.sub(r"(\S+-\S+)", r'<span class="nw">\1</span>', E(x)) + "</span>")
+                     for x in first + ([b["ext"]] if b.get("ext") else [])]
             extra = diff_lines(lines)
-        if sid in ("releases", "oss"):
+        if sid == "ship" and b.get("opened"):
+            extra = rate_bar(b["number"], b["opened"], P2) + (diff_lines(lines[1:]) if len(lines) > 1 else "")  # the rate is drawn
+        if sid == "run" and b.get("start"):
+            extra = f'<div class="runline rise" {P2}>{year_line(story, b["start"], b["end"], P2)}</div>'
+        if sid == "releases" and all(x.get("dates") for x in b["rows"][:3]) and b["rows"]:
+            extra = release_rug(b["rows"][:3], story["year"], P2)
+        elif sid in ("releases", "oss"):
             if sid == "releases":
                 rows = [(" ", f'<b class="tag">{E(x["tag"])}</b><span>{E(x["repo"])}</span>'
                          f'<em>{plural(x["count"], "release")}</em>') for x in b["rows"][:2]]
@@ -556,7 +671,8 @@ def scene_html(b: dict, story: dict, total: int, direction: str = "a", thumb: bo
         hours = b["hours"]
         mx = max(hours) or 1
         bars = "".join(
-            f'<div class="hb{" peak" if h == b["peak"] else ""}"><i class="bar" style="height:{max(4, round(100 * v / mx))}%"></i></div>'
+            f'<div class="hb{" peak" if h == b["peak"] else ""}"><i class="bar" style="height:{max(4, round(100 * v / mx))}%">'
+            f'{f"<span>{h:02d}:00</span>" if h == b["peak"] else ""}</i></div>'
             for h, v in enumerate(hours))
         ticks = "".join(f'<span style="left:{h / 24 * 100:.3f}%">{h:02d}</span>' for h in (0, 6, 12, 18))
         body = f"""
@@ -627,6 +743,8 @@ def beat_timing(sid: str, html_: str, typed: str | None) -> dict:
     t2 = t1 + hero + (GAP if hero else 0)
     n2 = html_.count('data-p="2"')
     settle = t2 + (SUPPORT_RISE + STAGGER * (n2 - 1) if n2 else 0)
+    if any(k in html_ for k in ('class="w', 'class="t r')):
+        settle += 0.45  # a unit chart fills one square at a time (0.8 s at most), then holds
     hold = HOLD.get(sid, HOLD["default"])
     return {"type_at": round(type_at, 3), "type_dur": round(type_dur, 3), "t1": round(t1, 3),
             "t2": round(t2, 3), "settle": round(settle, 3), "duration": round(settle + hold + EXIT, 3)}

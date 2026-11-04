@@ -536,7 +536,8 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
             releases.append({"repo": r["name"] if named else None, "count": len(tags),
                              "first": tags[-1]["tagName"] if named else None,
                              "latest": tags[0]["tagName"] if named else None,
-                             "latest_date": tags[0]["createdAt"][:10]})
+                             "latest_date": tags[0]["createdAt"][:10],
+                             "dates": sorted(x["createdAt"][:10] for x in tags) if named else []})
     releases.sort(key=lambda x: -x["count"])
 
     for r in repos:

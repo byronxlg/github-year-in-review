@@ -8,7 +8,7 @@ Rendered with HyperFrames (`npx hyperframes`); no other skill needed.
 
 ![byronxlg 2026 poster](examples/byronxlg-2026.jpg)
 
-Example: [examples/byronxlg-2026.mp4](examples/byronxlg-2026.mp4) (72 s, 1080x1350, 2 MB).
+Example: [examples/byronxlg-2026.mp4](examples/byronxlg-2026.mp4) (73 s, 1080x1350, 4 MB).
 Thumbnail: [examples/byronxlg-2026-thumbnail.png](examples/byronxlg-2026-thumbnail.png).
 
 ## What the film shows

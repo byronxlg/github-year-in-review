@@ -156,6 +156,39 @@ the first. Title size is 190 px, shrunk so the longest line fits 912 px at about
 character (`title_size`). Everything comes from `story.json`, so edits to the name or reason
 carry through. A story with no identity beat falls back to the v4 close still.
 
+## v6: each chart takes the shape of its question (2026-11-04)
+
+Feedback on v5: "the chart choice could be more varied and better given what it is showing.
+Eg. Claude percentages."
+
+- **What was wrong.** Four of the chart beats were the same mark, a horizontal or vertical bar,
+  and the agents bars were misleading: 41/34/14% were shares of Claude's commits, drawn under a
+  58% headline, so they read as shares of all commits. The run, ship and releases beats had no
+  chart at all, only a number and text.
+- **The rule.** Pick the form from the question: a part of a whole is a waffle, a run is a
+  stretch of the year, a rate is one filled bar, a cadence is counts on a time axis, a ranking is
+  bars. Every part adds up to the headline on screen.
+- **agents.** A 10 x 10 waffle, one square per percent of all commits (the ledger's own unit),
+  filled per model in signal, light, dark and taupe (told apart by lightness, not hue), the rest
+  "you, solo". `alloc` splits by largest remainder so 24 + 19 + 8 + 7 = 58 exactly.
+- **run.** The year as one tick a day: active days stand up in grey, the run is a solid signal
+  block, with a two-item key.
+- **ship.** One bar of PRs opened, filled to the merged share; "90% merged / of 1,344 opened".
+- **releases.** One square per release stacked in its month (unit columns), lead project in
+  signal; caption is the largest three-day burst when it is 40%+ of the year (`burst_line`).
+  Needs `releases.repos[].dates`, collected since v6; older `year.json` keeps the tag list.
+- **clock.** Stays a 24-bar histogram, with the peak bar labelled.
+- **work.** Stays ranked bars: it is a ranking.
+
+Two directions were built: "fit" (above, with a 24-hour radial dial for the clock) and "units"
+(every chart in squares: a stacked bar for agents, a 24-cell heat strip, 45 day squares, a
+100-square merge waffle, 44 release squares). A blind juror saw v5, fit and units unlabelled
+against Spotify Wrapped, Pudding/NYT unit charts and Apple Screen Time: fit first on four of
+five beats, v5's linear histogram over the dial for the clock ("radial is hard to compare on
+a phone"), units second (its squares said nothing about when). Fixed from the juror's list:
+the clock keeps bars, the "others" legend fits, empty squares and the solo swatch lifted to
+read, the run's grey ticks have a key, hyphenated repo names and orphan words no longer break.
+
 ## Archetype
 
 Adjective from rhythm, noun from output, each with a one-line reason shown under the name:

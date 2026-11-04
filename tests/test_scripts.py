@@ -287,6 +287,45 @@ class Story(unittest.TestCase):
             self.assertIn('<span class="signal">Superconductor</span>', thumb)
 
 
+class ChartsTest(unittest.TestCase):
+    """v6: each chart takes the shape of its question, and its parts add up to the headline."""
+
+    def test_alloc_adds_up(self):
+        self.assertEqual(build.alloc(58, [0.406, 0.336, 0.138, 0.12]), [24, 19, 8, 7])
+        for total in (1, 7, 58, 99):
+            self.assertEqual(sum(build.alloc(total, [0.5, 0.3, 0.2])), total)
+
+    def test_agents_waffle_is_share_of_all_commits(self):
+        b = {"number": 58, "unit": "of your commits co-written with Claude",
+             "rows": [{"trailer": "Claude Opus 5.5", "share": 0.406}, {"trailer": "Claude Opus 4.8", "share": 0.336},
+                      {"trailer": "Claude Opus 4.6", "share": 0.138}]}
+        parts = build.agent_parts(b, "Claude")
+        self.assertEqual(parts, [("Opus 5.5", 24), ("Opus 4.8", 19), ("Opus 4.6", 8), ("others", 7)])
+        html = build.waffle([v for _, v in parts], 'data-p="2"')
+        self.assertEqual(html.count('class="w"'), 58)
+        self.assertEqual(html.count('class="w o"'), 42)
+
+    def test_release_burst(self):
+        rel = {"repos": [{"dates": ["2026-03-19"] * 10 + ["2026-03-21"] * 5 + ["2026-07-01", "2026-09-08"]}]}
+        self.assertEqual(build.burst_line(rel), "15 of them in 3 days in March.")
+        self.assertEqual(build.burst_line({"repos": [{"dates": ["2026-01-05", "2026-04-01", "2026-08-01"]}]}), "")
+
+    def test_beats_draw_their_charts(self):
+        d = year_fixture()
+        d["releases"] = {"total": 4, "repos": [{"repo": "tool", "count": 4, "first": "v0.1.0", "latest": "v0.4.0",
+                                                "latest_date": "2026-05-02", "dates": ["2026-02-01", "2026-03-01", "2026-05-01", "2026-05-02"]}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            story = build.make_story(d, build.CTA)
+            html = build.build(story, Path(tmp), None, None).read_text()
+        ids = {b["id"] for b in story["beats"]}
+        if "run" in ids:
+            self.assertIn('class="yline"', html)
+        if "ship" in ids:
+            self.assertIn('class="rate', html)
+        self.assertIn('class="rcols"', html)
+        self.assertNotIn('class="trailers"', html)
+
+
 class BeatGridTest(unittest.TestCase):
     def test_parses_hyperframes_beats_and_cue_files(self):
         self.assertEqual(build.parse_beats({"bpm": 110, "beatTimes": [0.555, 1.105]}), [0.555, 1.105])
