@@ -48,6 +48,9 @@ PACES = {
              "gap": GAP, "exit": EXIT, "est": 1.0},
     "tight": {"chapters": False, "speed": 0.6, "hold": 2.5 / 3.0, "fade_in": 0.1, "fade_out": 0.0, "lead": 0.08,
               "gap": 0.12, "exit": 0.0, "est": 0.56},
+    # suite (test): the picker reel's pace B, with a transition from SUITE on every cut.
+    "suite": {"chapters": False, "speed": 0.75, "hold": 2.9 / 3.0, "fade_in": 0.0, "fade_out": 0.0, "lead": 0.12,
+              "gap": 0.18, "exit": 0.0, "est": 0.72, "cuts": True},
 }
 PACE = "calm"
 DIRECTION = "b"  # juror pick 2026-11-03; see docs/design.md v3
@@ -746,6 +749,131 @@ def make_story(d: dict, cta: str, force=(), skip=(), pace: str = PACE) -> dict:
             "period_to": p.get("to"), "pace": pace, "selection": rec, "beats": beats}
 
 
+# --------------------------------------------------------------------------- transitions
+
+TRANSITIONS_JS = ASSETS / "transitions.js"
+CUT_OVERLAP = 0.6  # the incoming scene's entrance starts this far through the transition
+# The suite, by number in transitions.js. Each card lists the transitions that say something about
+# its stat, best first; a used one falls to the next. No transition shows a card's hero number
+# before the card lands, so 61 is listed but not first for lines. Mirrored in references/story.md.
+PAIRS = {
+    "shape": (49, 50),          # the real calendar, day by day, into the calendar
+    "yoy": (62,),               # this year's real months
+    "run": (53,),               # the streak snake
+    "clock": (46, 63),          # bars, into the hour bars
+    "punchcard": (65,),         # the real punchcard
+    "work": (68, 66),           # the year's weeks as a log
+    "languages": (64,),         # the real language bar
+    "agents": (66, 67),         # parallel rails, the team
+    "models": (72,),            # a timeline, into a timeline
+    "ship": (69,),              # the merge button
+    "diff": (59, 47, 58),       # a hunk, into the biggest change
+    "lines": (60, 61, 47),      # all red then all green; 61 carries the real numbers
+    "actions": (70, 71, 72),    # the checks pass
+    "releases": (75,),          # a release tag, v<year>
+    "started": (67, 74),        # a branch opens
+    "oss": (76,),               # a star
+    "surprise": (71, 74),       # a run finishes on its own
+    "day": (54, 56),            # heat from one point
+    "identity": (73,),          # the handle's own identicon
+    "close": (57, 58, 76),      # the year's real stats as one diff
+}
+NEUTRAL = (42, 43, 56, 55, 52, 51)  # for a card whose own have gone; contribution squares, no stat
+NEEDS_BEAT = {61: "lines", 64: "languages", 65: "punchcard"}
+NEEDS_STATS = {57: 4, 58: 4}  # rows a stat diff needs to fill the frame
+SUITE = sorted({n for ns in PAIRS.values() for n in ns} | set(NEUTRAL))
+
+
+def transition_list() -> list[dict]:
+    """Number, name, duration and z order of every transition, read from the JS so they cannot disagree."""
+    found = re.findall(r'^  \{ name: "([^"]+)", d: ([\d.]+)(, aTop: true)?', TRANSITIONS_JS.read_text(), re.M)
+    return [{"n": i + 1, "name": name, "d": float(d), "aTop": bool(top)} for i, (name, d, top) in enumerate(found)]
+
+
+def cut_data(story: dict) -> dict:
+    """The story's real numbers, for the transitions drawn from them. Only what the film already
+    shows: no commit messages, which could name private work."""
+    beat = {b["id"]: b for b in story["beats"]}
+    cal = story["calendar"]
+    months = [0] * 12
+    for d, v in cal:
+        months[int(d[5:7]) - 1] += v
+    weeks = [sum(v for _, v in cal[i:i + 7]) for i in range(0, len(cal), 7)]
+    busiest = sorted(sorted(range(len(weeks)), key=lambda k: -weeks[k])[:24])
+    stats = [(key, f"{beat[sid][field]:,}") for key, sid, field in (
+        ("contributions", "hook", "number"), ("longest_run_days", "run", "number"), ("prs_merged", "ship", "number"),
+        ("prs_opened", "ship", "opened"), ("lines_added", "lines", "added"), ("lines_removed", "lines", "removed"),
+        ("actions_minutes", "actions", "number"), ("actions_runs", "actions", "runs"), ("repos", "languages", "repos"))
+        if isinstance(beat.get(sid, {}).get(field), int)]
+    return {"user": story["user"], "year": story["year"], "calendar": cal, "months": months, "weeks": weeks, "stats": stats,
+            "added": beat.get("lines", {}).get("added", 0), "removed": beat.get("lines", {}).get("removed", 0),
+            "punchcard": beat.get("punchcard", {}).get("grid", []), "languages": beat.get("languages", {}).get("rows", []),
+            "log": [[f"week {k + 1:02}", f"{weeks[k]:,} contributions"] for k in busiest],
+            "jobs": [b.get("label", b["id"]) for b in story["beats"]][:10]}
+
+
+def plan_cuts(story: dict) -> list[dict]:
+    """One transition per cut, keyed by the card it enters: story["cut_force"] {beat: number}, else
+    the card's first free pair, else the next neutral one. Nothing plays twice unless the neutrals
+    run out. Recorded in story["cuts"]."""
+    beats = story["beats"]
+    index = {t["n"]: t for t in transition_list()}
+    force = story.get("cut_force") or {}
+    skip = set(story.get("cut_skip") or [])
+    data = cut_data(story)
+    have = {b["id"] for b in beats}
+
+    def missing(n: int) -> str | None:
+        if n not in index:
+            return f"no transition {n}: the list runs 1 to {len(index)}"
+        if n in NEEDS_BEAT and NEEDS_BEAT[n] not in have:
+            return f"transition {n} draws on the {NEEDS_BEAT[n]} beat, which is not in this film"
+        if len(data["stats"]) < NEEDS_STATS.get(n, 0):
+            return f"transition {n} needs {NEEDS_STATS[n]} stats, this film has {len(data['stats'])}"
+        return None
+
+    used = set(force.values())
+    usable = lambda n: n not in used and n not in skip and missing(n) is None
+    cuts = []
+    neutral_at = 0
+    for a, b in zip(beats, beats[1:]):
+        sid = b["id"]
+        if sid in force:
+            n, why = force[sid], "--cut"
+            if missing(n):
+                raise ValueError(missing(n))
+        else:
+            n = next((x for x in PAIRS.get(sid, ()) if usable(x)), None)
+            why = f"pair for {sid}"
+            if n is None:
+                free = [x for x in NEUTRAL if x not in skip] or list(NEUTRAL)
+                n = next((x for x in free if x not in used), free[neutral_at % len(free)])
+                neutral_at += 1
+                why = "neutral"
+        used.add(n)
+        cuts.append({"from": a["id"], "to": sid, "n": n, "name": index[n]["name"], "d": index[n]["d"],
+                     "aTop": index[n]["aTop"], "why": why})
+    return cuts
+
+
+def cut_runner(data: dict, flow: list[dict]) -> str:
+    """The JS that schedules the transitions on the page's timeline. flow: {T, k, n}, the scene
+    index k leaving at time T through transition n."""
+    safe = lambda x: json.dumps(x).replace("</", "<\\/")
+    return "const DATA = " + safe(data) + ";\n" + TRANSITIONS_JS.read_text() + """
+      const FLOW = """ + safe(flow) + """;
+      FLOW.forEach(({T, k, n}) => {
+        const t = TRANSITIONS[n - 1];
+        const A = document.getElementById("s-" + TIMING[k].key).querySelector(".tw");
+        const B = document.getElementById("s-" + TIMING[k + 1].key).querySelector(".tw");
+        const c = ctx(tl, T, t.d, A, B);
+        const bg = t.opaque === false ? "rgba(20,18,15,0)" : "rgba(20,18,15,1)";
+        tl.set([A, B], { backgroundColor: bg }, T);
+        t.fn(c);
+      });
+"""
+
+
 # --------------------------------------------------------------------------- timing
 
 
@@ -1300,6 +1428,10 @@ def build(story: dict, out: Path, music: Path | None, cues: Path | None, directi
         b.setdefault("cmd", COMMANDS[b["id"]].format(user=story["user"], year=story["year"]))
     pace = story.get("pace", PACE)
     scenes = plan_scenes(story, direction, pace)
+    cuts = plan_cuts(story) if PACES[pace].get("cuts") else []
+    story["cuts"] = cuts
+    for s, c in zip(scenes, cuts):  # a scene holds on until the next one's entrance starts
+        s["duration"] = round(s["duration"] + c["d"] * CUT_OVERLAP, 3)
     grid = beat_grid(music, cues)
     snap_times(scenes, grid)
     for s in scenes:
@@ -1318,15 +1450,30 @@ def build(story: dict, out: Path, music: Path | None, cues: Path | None, directi
             {"t": 0, "v": 0.5}, {"t": max(0, total_dur - 2.2), "v": 0.5}, {"t": total_dur, "v": 0}]}]}
         audio = (f'<audio id="music" src="assets/music/{E(music.name)}" data-start="0" data-duration="{total_dur}" '
                  f'data-track-index="9" data-volume="0.5" data-automation=\'{json.dumps(fade)}\'></audio>')
-    html_scenes = "\n    ".join(
-        f'<section id="s-{s["key"]}" class="clip scene" data-start="{s["start"]}" data-duration="{s["duration"]}" '
-        f'data-track-index="1">{s["html"]}</section>' for s in scenes)
+    flow = [{"T": round(scenes[i + 1]["start"] - c["d"] * CUT_OVERLAP, 3), "k": i, "n": c["n"]} for i, c in enumerate(cuts)]
+    if cuts:
+        # both clips play through the transition, so they sit on alternate tracks; a scene stacks
+        # above the one before it unless the transition lifts the outgoing one off
+        spans, z = [], 1000
+        for i, s in enumerate(scenes):
+            if i:
+                z += -1 if cuts[i - 1]["aTop"] else 1
+            start = flow[i - 1]["T"] if i else s["start"]
+            end = flow[i]["T"] + cuts[i]["d"] if i < len(cuts) else s["start"] + s["duration"]
+            spans.append(f'<section id="s-{s["key"]}" class="clip scene" data-start="{start}" data-duration="{round(end - start, 3)}" '
+                         f'data-track-index="{1 + 2 * (i % 2)}" style="z-index:{z}"><div class="tw">{s["html"]}</div></section>')
+        html_scenes = "\n    ".join(spans)
+    else:
+        html_scenes = "\n    ".join(
+            f'<section id="s-{s["key"]}" class="clip scene" data-start="{s["start"]}" data-duration="{s["duration"]}" '
+            f'data-track-index="1">{s["html"]}</section>' for s in scenes)
     keys = ("type_at", "type_dur", "t1", "t2", "start", "duration")
     timing = [{"key": s["key"], "id": s["id"], "beat": s["beat"]["index"] if s["beat"] else 0,
                **{k: s[k] for k in keys}} for s in scenes]
     tpl = (ASSETS / "template.html").read_text()
     page = (tpl.replace("__DURATION__", str(total_dur))
-            .replace("__ROOT_CLASS__", "dir-" + direction)
+            .replace("__ROOT_CLASS__", "dir-" + direction + (" cuts" if cuts else ""))
+            .replace("/*__CUTS__*/", cut_runner(cut_data(story), flow) if cuts else "")
             .replace("__HANDLE__", E("@" + story["user"]))
             .replace("__YEAR__", E(story["year_label"]))
             .replace("<!--__SCENES__-->", html_scenes)
@@ -1417,6 +1564,7 @@ def build_thumbnail(story: dict, out: Path, tpl: str) -> Path:
             .replace("<!--__SCENES__-->", scene)
             .replace("<!--__AUDIO__-->", "")
             .replace("/*__TIMING__*/[]", "[]")
+            .replace("/*__CUTS__*/", "")
             .replace("/*__PACE__*/", ""))
     (comp / "index.html").write_text(page)
     return comp / "index.html"
@@ -1424,15 +1572,20 @@ def build_thumbnail(story: dict, out: Path, tpl: str) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("year_json")
-    p.add_argument("--out", required=True)
+    p.add_argument("year_json", nargs="?")
+    p.add_argument("--out")
     p.add_argument("--story", help="edited story.json to build from instead of regenerating")
     p.add_argument("--music")
     p.add_argument("--cues", help="beat JSON (hyperframes beats --json output, or a beats array) to start scenes on the beat; detected from --music when omitted")
     p.add_argument("--cta", default=CTA)
     p.add_argument("--direction", choices=["a", "b"], default=DIRECTION)
     p.add_argument("--pace", choices=list(PACES), help="calm (default): chapter cards, fades, 3 s holds. tight: "
-                   "no cards, cuts, faster motion, 2.5 s holds, so more beats fit the budget. --story keeps its own")
+                   "no cards, cuts, faster motion, 2.5 s holds, so more beats fit the budget. suite: no cards, a "
+                   "transition from the suite on every cut. --story keeps its own")
+    p.add_argument("--cut", default="", help="suite pace: the transition into a card, beat=number, comma separated "
+                   "(lines=61,ship=1); any number in transitions.js. --story keeps these")
+    p.add_argument("--cut-skip", default="", help="suite pace: transition numbers never to pick, comma separated")
+    p.add_argument("--transitions", action="store_true", help="print the transition suite and exit")
     p.add_argument("--beats", default="", help="optional beat ids to force in, comma separated (an alternative "
                    "in the same slot makes way; forced beats count against the time budget first)")
     p.add_argument("--skip", default="", help="optional beat ids to leave out, comma separated")
@@ -1442,6 +1595,14 @@ def main(argv: list[str] | None = None) -> int:
         for sid, slot, must, needs, rule, score in CATALOGUE:
             print(f"{sid:10} {slot:10} {'mandatory' if must else 'optional ':9}  {rule}; score: {score}")
         return 0
+    if a.transitions:
+        by_n = {t["n"]: t for t in transition_list()}
+        for sid, ns in PAIRS.items():
+            print(f"{sid:10} " + ", ".join(f"{n} {by_n[n]['name']} ({by_n[n]['d']:g} s)" for n in ns))
+        print("neutral    " + ", ".join(f"{n} {by_n[n]['name']}" for n in NEUTRAL))
+        return 0
+    if not a.out or not (a.year_json or a.story):
+        p.error("a year.json (or --story) and --out are needed to build")
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     if a.story:
@@ -1451,9 +1612,15 @@ def main(argv: list[str] | None = None) -> int:
     else:
         ids = lambda x: [k.strip() for k in x.split(",") if k.strip()]
         story = make_story(json.loads(Path(a.year_json).read_text()), a.cta, ids(a.beats), ids(a.skip), a.pace or PACE)
+    if a.cut:
+        story["cut_force"] = {k.strip(): int(v) for k, v in (x.split("=") for x in a.cut.split(","))}
+    if a.cut_skip:
+        story["cut_skip"] = [int(x) for x in a.cut_skip.split(",")]
     page = build(story, out, Path(a.music) if a.music else None, Path(a.cues) if a.cues else None, a.direction)
     total = story["beats"][-1]["start"] + story["beats"][-1]["duration"]
     print(f"{len(story['beats'])} beats, {total:.1f}s -> {page}", file=sys.stderr)
+    if story.get("cuts"):
+        print("cuts:     " + ", ".join(f"{c['to']} {c['n']}" for c in story["cuts"]), file=sys.stderr)
     sel = story.get("selection")
     if sel:
         print("chosen:   " + ", ".join(f"{x['id']}" + ("" if x["score"] is None else f" {x['score']:.2f}")

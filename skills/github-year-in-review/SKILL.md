@@ -85,6 +85,15 @@ A quiet year makes a shorter film, not an empty one.
 runs motion at 0.6 speed and holds 2.5 s, so about 17 beats fit where calm fits 11. `--story`
 rebuilds keep the pace unless you pass it again.
 
+**Transitions.** `--pace suite` (test, not yet the default) adds a transition on every cut, from
+the suite in `assets/transitions.js` (`build.py --transitions` lists it). Each card has its own,
+drawn from what the card is about: the real calendar into the shape, the streak snake into the
+run, the merge button into the merged PRs, the checks passing into machine time, the handle's
+identicon into the identity, the year's stats as one diff into the close. None shows a card's hero
+number before the card lands. A card whose own are used takes the next, then a neutral grid; nothing
+repeats while there are others. `story.json:cuts` records each choice. Change them with
+`--cut lines=61,ship=1` (any number in the file) and `--cut-skip 51,52`; `--story` rebuilds keep them.
+
 **Review the selection.** `story.json` has `selection.chosen` and `selection.left_out`, each
 with its score and, for those left out, the reason. Ask whether the film is the best one for this
 person: a left-out beat may say more about them than a chosen one (a new maintainer's open

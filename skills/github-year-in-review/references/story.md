@@ -78,6 +78,16 @@ beat with no data stays out and the reason says so. Deleting a beat object from 
 and rebuilding with `--story` also drops it; adding one needs `--beats`, since its data comes
 from `year.json`.
 
+### story.json `cuts`
+
+`--pace suite` only. One row per cut: `from`, `to`, `n` (number in `assets/transitions.js`), `name`, `d`
+seconds, `why` (`pair for <beat>`, `neutral` or `--cut`). Derived on every build: to change one, set
+`cut_force` (`{"lines": 61}`) or `cut_skip` (`[51, 52]`), or pass `--cut` and `--cut-skip`. Pairs, best first,
+from `build.py:PAIRS` (`build.py --transitions` prints them with names): shape 49, 50; yoy 62; run 53;
+clock 46, 63; punchcard 65; work 68, 66; languages 64; agents 66, 67; models 72; ship 69; diff 59, 47, 58;
+lines 60, 61, 47; actions 70, 71, 72; releases 75; started 67, 74; oss 76; surprise 71, 74; day 54, 56;
+identity 73; close 57, 58, 76. Neutral: 42, 43, 56, 55, 52, 51.
+
 ## story.json fields safe to edit
 
 `label`, `title`, `caption`, `line`, `sub`, `ext`, `unit`, `lead`, identity `name` and `reason`,

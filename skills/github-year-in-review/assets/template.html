@@ -49,6 +49,15 @@
         position: absolute;
         inset: 0;
       }
+      /* a transition moves this wrapper, so a scene's own fades stay its own */
+      .tw {
+        position: absolute;
+        inset: 0;
+        background: var(--ground);
+      }
+      .cuts #rail {
+        z-index: 4000;
+      }
       .inner {
         position: absolute;
         inset: 0 0 150px 0;
@@ -654,7 +663,7 @@
         const inner = scene.querySelector(".inner");
         const at = (x) => s.start + x;
         const end = s.start + s.duration;
-        if (si > 0) tl.fromTo(inner, { opacity: 0 }, { opacity: 1, duration: PACE.fadeIn, ease: "power1.out" }, s.start);
+        if (si > 0 && PACE.fadeIn > 0) tl.fromTo(inner, { opacity: 0 }, { opacity: 1, duration: PACE.fadeIn, ease: "power1.out" }, s.start);
         // Phase 0: type the command, then the cursor goes (no blinking during the hold).
         if (s.type_dur > 0) {
           const cmd = scene.querySelector(".cmd");
@@ -723,6 +732,7 @@
         });
         if (si < TIMING.length - 1 && PACE.fadeOut > 0) tl.to(inner, { opacity: 0, duration: PACE.fadeOut, ease: "power1.in" }, end - PACE.fadeOut - 0.03);
       });
+      /*__CUTS__*/
       window.__timelines["main"] = tl;
     </script>
   </body>

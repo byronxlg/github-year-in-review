@@ -1,4 +1,5 @@
-// Numbered scene transitions for the picker reel (tools/transition_reel.py), in the film's palette.
+// Numbered scene transitions: the suite the film picks from (build.py:SUITE) and the picker reel
+// (tools/transition_reel.py). Numbers are positions in this list: new ones go on the end. In the film's palette.
 // Each: { name, d: seconds, fn(c), opaque?: false }. c gives tl, T, D, A, B (.tw wrappers of the
 // outgoing and incoming scene), ai, bi (their .inner) and the helpers below. Single paused
 // timeline, explicit from-states, seeded randomness only: seek-safe.
@@ -10,7 +11,7 @@ const W = 1080, H = 1350;
 function seeded(seed) { let s = seed; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
 
 function ctx(tl, T, D, A, B) {
-  const film = document.getElementById("film");
+  const film = document.getElementById("film") || document.getElementById("root");
   const c = { tl, T, D, A, B, ai: A.querySelector(".inner"), bi: B.querySelector(".inner") };
   // the outgoing scene: an explicit from-state, not applied until the transition starts
   c.out = (el, from, to, at = 0, dur = D) => tl.fromTo(el, from, { ...to, duration: dur, immediateRender: false }, T + at);
@@ -71,7 +72,8 @@ const randOrder = (seed) => { const r = seeded(seed); const m = new Map(); retur
 
 const GREEN = ["#0e4429", "#006d32", "#26a641", "#39d353"];
 const ADDBG = "#22352a", DELBG = "#3d2425";
-const LANG = { HTML: "#e34c26", Python: "#3572a5", JavaScript: "#f1e05a", TypeScript: "#3178c6", other: "#6e7681" };
+const LANG = { HTML: "#e34c26", Python: "#3572a5", JavaScript: "#f1e05a", TypeScript: "#3178c6", Go: "#00add8", Rust: "#dea584", Java: "#b07219", "C++": "#f34b7d", C: "#555555", "C#": "#178600", Ruby: "#701516", PHP: "#4f5d95", Shell: "#89e051", CSS: "#563d7c", Swift: "#f05138", Kotlin: "#a97bff", Dart: "#00b4ab", "Jupyter Notebook": "#da5b0b", other: "#6e7681" };
+const onColour = (hex) => { const v = parseInt(hex.slice(1), 16); return 0.299 * (v >> 16) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255) > 150 ? GROUND : "#fff"; };
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 const heatFrom = (seed, cols) => { const r = seeded(seed); const m = new Map(); return (x, y) => { const k = x * 1000 + y; if (!m.has(k)) m.set(k, cols[Math.floor(r() * 4)]); return m.get(k); }; };
 // the real calendar as colours: no contributions is the empty square, the rest by quartile of active days
@@ -307,7 +309,7 @@ const TRANSITIONS = [
   // contribution graph
   { name: "Your real 2026, day by day", d: 0.8, fn: (c) => {
     const lv = dayLevels(DATA.calendar);
-    c.cells(67.5, (x, y, cols) => y * cols + x, (x, y, cols) => lv[y * cols + x] || RULE);
+    c.cells(Math.sqrt((W * H) / Math.max(lv.length, 1)), (x, y, cols) => y * cols + x, (x, y, cols) => lv[y * cols + x] || RULE);
   } },
   { name: "Your real 2026, week columns", d: 0.8, fn: (c) => {
     const lv = dayLevels(DATA.calendar), off = (new Date(DATA.calendar[0][0] + "T00:00:00Z").getUTCDay());
@@ -463,7 +465,7 @@ const TRANSITIONS = [
     DATA.languages.forEach(([name, v], k) => {
       const w = (v / total) * W, col = LANG[name] || LANG.other;
       const s = document.createElement("div");
-      s.style.cssText = `position:absolute;left:${x}px;top:0;width:${w + 1}px;height:${H}px;background:${col};color:${name === "JavaScript" ? GROUND : "#fff"};font:800 74px Bricolage,sans-serif;font-stretch:75%;writing-mode:vertical-rl;display:flex;align-items:center;justify-content:center`;
+      s.style.cssText = `position:absolute;left:${x}px;top:0;width:${w + 1}px;height:${H}px;background:${col};color:${onColour(col)};font:800 74px Bricolage,sans-serif;font-stretch:75%;writing-mode:vertical-rl;display:flex;align-items:center;justify-content:center`;
       s.textContent = name; box.appendChild(s);
       c.tl.to(s, { yPercent: k % 2 ? 100 : -100, duration: 0.22, ease: "power3.in" }, c.T + 0.68 + k * 0.012);
       x += w;
