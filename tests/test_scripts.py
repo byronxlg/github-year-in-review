@@ -686,7 +686,7 @@ class TransitionSuite(unittest.TestCase):
 
     def test_cuts_are_the_cards_own_and_nothing_repeats(self):
         cuts = build.plan_cuts(cut_story())
-        self.assertEqual([c["n"] for c in cuts], [49, 53, 69, 60, 70, 73, 57])
+        self.assertEqual([c["n"] for c in cuts], [49, 53, 69, 60, 70, 73, 4])
         self.assertEqual(cuts[0]["from"], "hook")
         self.assertEqual(len({c["n"] for c in cuts}), len(cuts))
 
@@ -711,8 +711,13 @@ class TransitionSuite(unittest.TestCase):
             build.plan_cuts({**cut_story(), "cut_force": {"run": 99}})
 
     def test_stat_diffs_need_enough_stats(self):
-        cuts = build.plan_cuts(cut_story(("hook", "shape", "close")))
+        story = {**cut_story(("hook", "shape", "close")), "cut_skip": [4]}
+        cuts = build.plan_cuts(story)
         self.assertEqual(cuts[-1]["n"], 76)  # 57 and 58 would be one tall row
+
+    def test_the_close_arrives_on_a_plain_crossfade(self):
+        last = build.plan_cuts(cut_story())[-1]
+        self.assertEqual((last["to"], last["n"], last["name"]), ("close", 4, "Crossfade, slow"))
 
     def test_cut_data_is_the_storys_numbers_and_no_commit_text(self):
         d = build.cut_data(cut_story())

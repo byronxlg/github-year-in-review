@@ -308,6 +308,13 @@ Some of them can be paired with a card as the transition relates to the stats."
   suite's usual 0.9 s. 15 beats in 79 s on 2026 data, against 17 in 68 s at tight and 11 in 75 s at
   calm. Languages and the biggest day fall out on score. `calm` stays the default until he judges.
 - **Not done.** No blind juror: the cards are unchanged and he is picking.
+- **A simple close (2026-11-05).** "Let's make the transition from type to final slide a more simple
+  transition." The identity into the close is now 4, a 0.5 s crossfade. 57, 58 and 76 stay as second
+  choices. It joins the suite, making 33: the last thing on screen after 14 busy cuts should be the
+  plain closing card, not one more effect. The suite's rule that a transition relates to its card
+  stops at the close on purpose.
+- **In the README.** `tools/suite_board.py` draws the suite as one picture, without numbers, status
+  tags or anything about one film. It shows 30 of the 33 and fails on a pair with no caption.
 
 ## Archetype
 

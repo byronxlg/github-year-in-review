@@ -86,7 +86,7 @@ seconds, `why` (`pair for <beat>`, `neutral` or `--cut`). Derived on every build
 from `build.py:PAIRS` (`build.py --transitions` prints them with names): shape 49, 50; yoy 62; run 53;
 clock 46, 63; punchcard 65; work 68, 66; languages 64; agents 66, 67; models 72; ship 69; diff 59, 47, 58;
 lines 60, 61, 47; actions 70, 71, 72; releases 75; started 67, 74; oss 76; surprise 71, 74; day 54, 56;
-identity 73; close 57, 58, 76. Neutral: 42, 43, 56, 55, 52, 51.
+identity 73; close 4, 57, 58, 76. Neutral: 42, 43, 56, 55, 52, 51.
 
 ## story.json fields safe to edit
 

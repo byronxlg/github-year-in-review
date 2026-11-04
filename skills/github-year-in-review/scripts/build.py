@@ -776,7 +776,7 @@ PAIRS = {
     "surprise": (71, 74),       # a run finishes on its own
     "day": (54, 56),            # heat from one point
     "identity": (73,),          # the handle's own identicon
-    "close": (57, 58, 76),      # the year's real stats as one diff
+    "close": (4, 57, 58, 76),   # the last card arrives quietly: a plain crossfade; 57 and 58 are the stats as one diff
 }
 NEUTRAL = (42, 43, 56, 55, 52, 51)  # for a card whose own have gone; contribution squares, no stat
 NEEDS_BEAT = {61: "lines", 64: "languages", 65: "punchcard"}
