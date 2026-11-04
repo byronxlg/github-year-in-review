@@ -145,6 +145,17 @@ thumbnail, maybe the final screen but cleaner so no slide numbers".
   into `thumbnail.png` (1080x1350, the video's 4:5 for LinkedIn's custom thumbnail). Frame 0 of
   the video stays the hook (the post when it autoplays).
 
+## v5: the thumbnail is the identity (2026-11-04)
+
+Byron picked option A ("The Weekend Orchestrator", `a3-identity` on the thumbnail board) over
+the close. `build.py:build_thumbnail` now renders the identity beat: kicker "@<user> / <year>,
+in one line" in mono muted at the top, the name in Bricolage 800 at 75% stretch, one word a line
+(names past five words pack two a line before the last), the last word in `--signal`, then the
+reason split into one sentence a stat in mono ink, with a repeated "of commits" dropped after
+the first. Title size is 190 px, shrunk so the longest line fits 912 px at about 0.36 em a
+character (`title_size`). Everything comes from `story.json`, so edits to the name or reason
+carry through. A story with no identity beat falls back to the v4 close still.
+
 ## Archetype
 
 Adjective from rhythm, noun from output, each with a one-line reason shown under the name:

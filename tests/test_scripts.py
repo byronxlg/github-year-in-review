@@ -222,6 +222,58 @@ class Story(unittest.TestCase):
             self.assertIn("@quiet", thumb)
             self.assertTrue((out / "thumbnail" / "assets" / "fonts" / "JetBrainsMono.ttf").exists())
 
+    def test_thumbnail_is_the_identity(self):
+        """Option A: kicker, the archetype name with its last word in signal, the stats."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            story = build.make_story(year_fixture(), build.CTA)
+            ident = next(b for b in story["beats"] if b["id"] == "identity")
+            ident["name"] = "The Weekend Orchestrator"
+            ident["reason"] = "57% of commits shipped with agents, 38% of commits on weekends."
+            build.build(story, out, None, None)
+            thumb = (out / "thumbnail" / "index.html").read_text()
+            self.assertIn('id="s-identity"', thumb)
+            self.assertNotIn('id="s-close"', thumb)
+            self.assertIn(f'@quiet / {ident["label"]}</div>', thumb)
+            self.assertIn('style="font-size:190px">The<br>Weekend<br><span class="signal">Orchestrator</span>', thumb)
+            self.assertIn("57% of commits shipped with agents.<br>38% on weekends.", thumb)
+            for chrome in ('id="rail"', 'class="label"', 'class="cta', 'class="term"', "__"):
+                self.assertNotIn(chrome, thumb.replace("window.__timelines", ""))
+
+    def test_thumbnail_falls_back_to_close(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            story = build.make_story(year_fixture(), build.CTA)
+            story["beats"] = [b for b in story["beats"] if b["id"] != "identity"]
+            build.build(story, out, None, None)
+            thumb = (out / "thumbnail" / "index.html").read_text()
+            self.assertIn('id="s-close"', thumb)
+            self.assertNotIn('class="inner tid"', thumb)
+            self.assertIn("in review.", thumb)
+            self.assertNotIn('class="cta', thumb)
+
+    def test_thumbnail_long_title_fits(self):
+        name = "The Extraordinarily Nocturnal Internationalization Superconductor"
+        lines = build.title_lines(name)
+        self.assertEqual(lines[-1], "Superconductor")
+        size = build.title_size(lines)
+        self.assertLess(size, build.THUMB_TITLE)
+        self.assertLessEqual(build.THUMB_EM * size * max(map(len, lines)), 912)
+        self.assertLessEqual(len(lines) * size * 0.86, 700)  # leaves room for kicker and stats
+        many = build.title_lines("The Very Quiet Late Night Weekend Open Source Reviewer")
+        self.assertLessEqual(len(many), 5)
+        self.assertEqual(many[-1], "Reviewer")
+        self.assertEqual(build.title_size(build.title_lines("The Weekend Orchestrator")), 190)
+        self.assertEqual(build.stat_lines("A 44-day streak."), ["A 44-day streak."])
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            story = build.make_story(year_fixture(), build.CTA)
+            next(b for b in story["beats"] if b["id"] == "identity")["name"] = name
+            build.build(story, out, None, None)
+            thumb = (out / "thumbnail" / "index.html").read_text()
+            self.assertIn(f'style="font-size:{size}px">The<br>Extraordinarily<br>', thumb)
+            self.assertIn('<span class="signal">Superconductor</span>', thumb)
+
 
 if __name__ == "__main__":
     unittest.main()

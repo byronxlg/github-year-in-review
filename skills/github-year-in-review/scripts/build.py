@@ -683,20 +683,74 @@ def build(story: dict, out: Path, music: Path | None, cues: Path | None, directi
 
 
 THUMB_SECONDS = 1.0
+THUMB_TITLE = 190      # display size of the identity title on the thumbnail, px
+THUMB_WIDTH = 912      # 1080 less 84 px each side
+THUMB_EM = 0.36        # Bricolage 800 at 75% stretch: average advance per character, em (measured 0.33)
+
+
+def title_lines(name: str, max_lines: int = 5) -> list[str]:
+    """The identity name as display lines: one word a line ("The / Weekend / Orchestrator").
+    Past max_lines, the words before the last are packed two to a line; the last word always
+    stands alone so it can carry the signal colour."""
+    words = name.split()
+    if len(words) <= max_lines:
+        return words
+    head, last = words[:-1], words[-1]
+    return [" ".join(head[i:i + 2]) for i in range(0, len(head), 2)] + [last]
+
+
+def title_size(lines: list[str], base: int = THUMB_TITLE, width: int = THUMB_WIDTH) -> int:
+    """Largest size up to base at which the longest line fits width on one line."""
+    longest = max((len(x) for x in lines), default=1)
+    return min(base, int(width / (THUMB_EM * longest)))
+
+
+def stat_lines(reason: str) -> list[str]:
+    """The identity reason as one sentence a stat: "57% of commits shipped with agents, 38% of
+    commits on weekends." -> ["57% of commits shipped with agents.", "38% on weekends."]
+    (a repeated "of commits" is dropped after the first line)."""
+    parts = [x.strip().rstrip(".") for x in reason.split(", ") if x.strip().rstrip(".")]
+    out, seen = [], False
+    for x in parts:
+        if seen:
+            x = x.replace(" of commits", "", 1)
+        seen = seen or " of commits" in x
+        out.append(x[0].upper() + x[1:] + ".")
+    return out
+
+
+def thumb_identity_html(b: dict, story: dict) -> str:
+    """The thumbnail cover from the identity beat: mono kicker at the top ("@user / <year>, in
+    one line"), the name huge in condensed Bricolage with its last word in --signal, then the
+    stats behind it in mono ink, vertically centred. No label, counter, rail or CTA."""
+    lines = title_lines(b["name"])
+    title = "<br>".join(E(x) for x in lines[:-1])
+    title += ("<br>" if title else "") + f'<span class="signal">{E(lines[-1])}</span>'
+    stats = "<br>".join(E(x) for x in stat_lines(b.get("reason", "")))
+    return (f'<div class="inner tid"><div class="tk">{E("@" + story["user"])} / {E(b["label"])}</div>'
+            f'<div class="sp"></div><div class="tt" style="font-size:{title_size(lines)}px">{title}</div>'
+            + (f'<div class="ts">{stats}</div>' if stats else "") + '<div class="sp"></div></div>')
 
 
 def build_thumbnail(story: dict, out: Path, tpl: str) -> Path:
-    """<out>/thumbnail/: a one-second, motionless composition of the close (year grid, handle,
-    "<year>, in review.") with no label, slide counter, rail or CTA. Snapshot it to thumbnail.png."""
+    """<out>/thumbnail/: a one-second, motionless cover with no label, slide counter, rail or
+    CTA. Made from the identity beat ("The Weekend Orchestrator" and the stats behind it); a
+    story without one falls back to the close (year grid, handle, "<year>, in review.").
+    Snapshot it to thumbnail.png."""
+    ident = next((b for b in story["beats"] if b["id"] == "identity" and b.get("name")), None)
     close = next((b for b in story["beats"] if b["id"] == "close"), None)
-    if close is None:
-        raise ValueError("story has no close beat to make a thumbnail from")
+    if ident is None and close is None:
+        raise ValueError("story has no identity or close beat to make a thumbnail from")
     comp = out / "thumbnail"
     (comp / "assets" / "fonts").mkdir(parents=True, exist_ok=True)
     for f in (ASSETS / "fonts").glob("*.ttf"):
         shutil.copy(f, comp / "assets" / "fonts" / f.name)
-    scene = (f'<section id="s-close" class="clip scene" data-start="0" data-duration="{THUMB_SECONDS}" '
-             f'data-track-index="1">{scene_html(close, story, len(story["beats"]), thumb=True)}</section>')
+    if ident is not None:
+        sid, body = "identity", thumb_identity_html(ident, story)
+    else:
+        sid, body = "close", scene_html(close, story, len(story["beats"]), thumb=True)
+    scene = (f'<section id="s-{sid}" class="clip scene" data-start="0" data-duration="{THUMB_SECONDS}" '
+             f'data-track-index="1">{body}</section>')
     page = re.sub(r"<!--rail-->.*?<!--/rail-->", "", tpl, flags=re.S)
     page = (page.replace("__DURATION__", str(THUMB_SECONDS))
             .replace("__ROOT_CLASS__", "thumb")
