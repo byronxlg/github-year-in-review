@@ -45,7 +45,8 @@ python3 <skill-dir>/scripts/collect.py --user <login> --year <year> --out <out>/
 About two minutes for a busy account (commit history is sampled for the clock beat). It writes
 totals, the daily calendar, rhythm (streak, hours, weekdays), top repos, languages, pull
 requests, new repos, stars gained this year, and **automation**: repos where at least 60% of
-sampled commits share one message template (a cron committing as the user). Automation is kept
+sampled commits share one message template (a cron committing as the user), the contribution
+totals of the two years before (year on year), and the primary language of each owned repo. Automation is kept
 out of the rhythm and "work" beats and becomes its own surprise beat.
 
 It also collects the optional, topical data: **agents** (commits co-written with coding agents,
@@ -70,9 +71,27 @@ python3 <skill-dir>/scripts/build.py <out>/year.json --out <out> \
 ```
 
 This writes `<out>/story.json` (beats, copy, timings), `<out>/composition/` (the film) and
-`<out>/thumbnail/` (a one-second still of the identity for the cover, see step 4). Beats, their
-data, and fallbacks are in [references/story.md](references/story.md). Beats with thin data drop
-out, so a quiet year makes a shorter film, not an empty one.
+`<out>/thumbnail/` (a one-second still of the identity for the cover, see step 4).
+
+The beats come from a catalogue ([references/story.md](references/story.md), `build.py
+--catalogue`): mandatory beats (hook, shape, work, identity, close) are always in when their data
+exists; optional beats need their data to pass a threshold, then are scored for this person (how
+strong their number is against a baseline), alternatives in one slot (clock or punchcard,
+surprise or busiest day, lines or biggest change) keep only the higher score, and the best are
+taken until the time budget is full. The film's order is fixed by the catalogue, not the scores.
+A quiet year makes a shorter film, not an empty one.
+
+**Review the selection.** `story.json` has `selection.chosen` and `selection.left_out`, each
+with its score and, for those left out, the reason. Ask whether the film is the best one for this
+person: a left-out beat may say more about them than a chosen one (a new maintainer's open
+source PRs, a model timeline for someone who writes about agents). Swap with:
+
+```bash
+python3 <skill-dir>/scripts/build.py <out>/year.json --out <out> --beats <id,id> --skip <id,id>
+```
+
+`--beats` forces optional beats in (an alternative in their slot makes way), `--skip` drops
+optional beats; mandatory beats stay. Say what you swapped and why when you deliver.
 
 Then read `story.json` and improve the copy where you can be more specific than the defaults
 (captions, the archetype name and reason, the work-beat quote). Rules:

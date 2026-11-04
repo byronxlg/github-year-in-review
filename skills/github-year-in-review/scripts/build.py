@@ -2,7 +2,8 @@
 """Turn year.json into story.json and a HyperFrames composition.
 
     python3 build.py year.json --out <output-dir> [--story story.json] [--music track.mp3]
-                     [--cues beats.json] [--cta "Make yours: ..."]
+                     [--cues beats.json] [--cta "Make yours: ..."] [--beats id,id] [--skip id,id]
+    python3 build.py --catalogue year.json --out x   # print the beat catalogue
 
 With --music and no --cues, the beat grid comes from `npx hyperframes beats --json <track>`;
 if that is unavailable the film is built without beat sync.
@@ -31,9 +32,9 @@ CTA = "Make yours: github.com/byronxlg/github-year-in-review"
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
           "October", "November", "December"]
 # Rough length per beat, used only to decide which beats fit; real timing comes from beat_timing().
-EST_DURATION = {"hook": 5.6, "shape": 7.6, "run": 6.4, "clock": 7.2, "work": 7.6, "agents": 7.8,
-                "ship": 6.9, "diff": 6.9, "lines": 7.0, "actions": 7.0, "releases": 7.2, "started": 7.4, "oss": 7.0, "surprise": 6.4,
-                "identity": 6.0, "close": 6.8}
+EST_DURATION = {"hook": 5.6, "shape": 7.6, "yoy": 6.9, "run": 6.4, "clock": 7.2, "punchcard": 7.2, "work": 7.6,
+                "languages": 7.0, "agents": 7.8, "models": 7.4, "ship": 6.9, "diff": 6.9, "lines": 7.0, "actions": 7.0,
+                "releases": 7.2, "started": 7.4, "oss": 7.0, "surprise": 6.4, "day": 6.9, "identity": 6.0, "close": 6.8}
 # Pacing (seconds). One thing moves at a time; every beat holds still for HOLD before it leaves.
 LEAD, GAP, EXIT = 0.3, 0.35, 0.4
 TYPE_CPS = 30  # typing speed, characters per second
@@ -43,16 +44,11 @@ HOLD = {"default": 3.0, "close": 3.6, "chapter": 1.2}
 DIRECTION = "b"  # juror pick 2026-11-03; see docs/design.md v3
 # Direction B: chapter cards (title, command, beats in the chapter), inserted before the chapter's first beat.
 CHAPTERS = [
-    ("The rhythm", "git log --since={year}-01-01 --author={user}", ("shape", "run", "clock")),
-    ("The work", "git shortlog -sn --since={year}-01-01", ("work", "agents", "ship", "lines", "diff")),
-    ("What shipped", "git tag --sort=-creatordate", ("releases", "actions", "started", "oss", "surprise")),
+    ("The rhythm", "git log --since={year}-01-01 --author={user}", ("shape", "yoy", "run", "clock", "punchcard")),
+    ("The work", "git shortlog -sn --since={year}-01-01", ("work", "languages", "agents", "models", "ship", "lines", "diff")),
+    ("What shipped", "git tag --sort=-creatordate", ("releases", "actions", "started", "oss", "surprise", "day")),
 ]
 MAX_TOTAL = 78.0  # LinkedIn: under a minute and a half; calm pacing over more beats (estimates run long)
-# Beats dropped first when the film runs long; the last ones go last. hook, identity and close
-# are never dropped. The optional beats that flatter (agents, lines, releases) outlast rhythm detail;
-# the biggest-change beat goes before the year's lines, which say more.
-DROP_ORDER = ["surprise", "oss", "diff", "started", "run", "actions", "clock", "releases", "lines", "ship",
-              "agents", "work", "shape"]
 # A real command (or pipeline) that would answer each beat's question for a single repo. Kept in
 # story.json; only the hook's is drawn (v3: one prompt, static, so it never moves with a stat).
 COMMANDS = {
@@ -70,6 +66,11 @@ COMMANDS = {
     "started": "gh repo list --source",
     "oss": "gh search prs --author @me --merged",
     "surprise": "crontab -l",
+    "yoy": "git log --date=format:%Y --format=%ad | uniq -c",
+    "punchcard": "git log --date=format:'%a %H' --format=%ad | sort | uniq -c",
+    "languages": "gh repo list --source --json primaryLanguage",
+    "models": "git log --format='%(trailers:key=Co-authored-by,valueonly)' | sort -u",
+    "day": "git log --format=%as | uniq -c | sort -rn | head -1",
     "identity": "whoami",
     "close": "git commit -m \"{year}, in review\"",
 }
@@ -230,22 +231,79 @@ def duration_words(minutes: float) -> str:
     return plural(round(minutes), "minute")
 
 
-def make_story(d: dict, cta: str) -> dict:
-    u, p, t, r, pr = d["user"], d["period"], d["totals"], d["rhythm"], d["pull_requests"]
-    year_label = f"{p['year']} so far" if p["partial"] else str(p["year"])
+# --------------------------------------------------------------------------- the catalogue
+#
+# Every beat the film can carry, in film order. Mandatory beats are always in the film when
+# their data exists and are never cut for time. Optional beats must pass their eligibility rule
+# (thin data drops them), then compete on score: alternatives share a slot and only the higher
+# score plays, and the best are taken until MAX_TOTAL is full. The film keeps catalogue order,
+# whatever the scores. Scores are 0 to 1: a weight for how much the beat says in general, times
+# the strength of this person's number against a baseline, on a log ramp (ramp() below), so a
+# 56x year on year scores near the top and a 1.3x one near zero. Mirrored in references/story.md.
+CATALOGUE = [
+    # id, slot, mandatory, needs, eligible when, score
+    ("hook", "hook", True, "totals, user", "always", "-"),
+    ("shape", "shape", True, "calendar, rhythm.by_month", "always (caption adapts to thin years)", "-"),
+    ("yoy", "yoy", False, "history (contributions of the two years before)",
+     "a prior year with 10+ contributions", "0.9 x ramp(growth, 1.25x, 20x); flat or down 0.1"),
+    ("run", "run", False, "rhythm.streak", "streak of 3+ days", "0.9 x ramp(streak, 3, 60 days)"),
+    ("clock", "when", False, "rhythm.by_hour", "40+ sampled commits",
+     "0.7 x off-hours: ramp(night share, 10%, 45%) or ramp(morning share, 10%, 40%), floor 0.2"),
+    ("punchcard", "when", False, "rhythm.by_weekday_hour", "150+ sampled commits",
+     "clock score x week lift / 2: wins when one weekday holds over 2/7 of the peak hour"),
+    ("work", "work", True, "repos", "1+ public repo that is not automation", "-"),
+    ("languages", "languages", False, "repo_languages", "5+ repos with a language, 2+ languages",
+     "0.5 x ramp(repos, 5, 40)"),
+    ("agents", "agents", False, "agents", "10+ signed commits sampled and share 5%+",
+     "1.0 x ramp(share, 5%, 60%)"),
+    ("models", "models", False, "agents.model_first_seen", "3+ versioned models in trailers",
+     "0.75 x ramp(models, 3, 10)"),
+    ("ship", "ship", False, "pull_requests", "5+ PRs opened", "0.9 x ramp(merged, 5, 500)"),
+    ("lines", "code", False, "pull_requests.lines_added/removed", "1,000+ lines added over 5+ merged PRs",
+     "0.85 x ramp(added, 1k, 300k)"),
+    ("diff", "code", False, "pull_requests.biggest", "a nameable merged PR of 300+ lines",
+     "0.6 x ramp(lines, 300, 20k)"),
+    ("actions", "actions", False, "actions", "60+ minutes over 20+ runs", "0.7 x ramp(minutes, 60, 50k)"),
+    ("releases", "releases", False, "releases", "3+ releases", "0.8 x ramp(releases, 3, 60)"),
+    ("started", "started", False, "new_repos, stars", "1+ new repo", "0.75 x ramp(new repos, 1, 30)"),
+    ("oss", "oss", False, "pull_requests.external_public", "3+ PRs merged into others' public repos",
+     "1.0 x ramp(PRs, 3, 50)"),
+    ("surprise", "surprise", False, "automation", "50+ automation commits; not with agents (it folds in there)",
+     "0.8 x ramp(automation share of commits, 5%, 50%)"),
+    ("day", "surprise", False, "rhythm.busiest_day, calendar", "busiest day 10+ and 3x+ the mean active day",
+     "0.7 x ramp(busiest / mean active day, 3x, 30x)"),
+    ("identity", "identity", True, "derived (archetype)", "always", "-"),
+    ("close", "close", True, "user", "always", "-"),
+]
+BEATS = {c[0]: {"id": c[0], "slot": c[1], "mandatory": c[2], "needs": c[3], "rule": c[4], "score": c[5],
+                "order": k} for k, c in enumerate(CATALOGUE)}
+YIELDS_TO = {"surprise": "agents"}  # surprise is left out when agents plays: the cron is named there
+
+
+def ramp(x: float, lo: float, hi: float) -> float:
+    """0 at lo, 1 at hi, on a log scale, clamped: the strength of a number against its baseline."""
+    if x <= lo or hi <= lo:
+        return 0.0
+    return min(1.0, math.log(x / lo) / math.log(hi / lo))
+
+
+def ctx_of(d: dict) -> dict:
+    p = d["period"]
     auto_names = {a["name"] for a in d["automation"]["repos"]}
-    human_repos = [x for x in d["repos"] if x["name"] not in auto_names and not x["private"]]
-    beats: list[dict] = []
+    return {"year_label": f"{p['year']} so far" if p["partial"] else str(p["year"]),
+            "human_repos": [x for x in d["repos"] if x["name"] not in auto_names and not x["private"]]}
 
-    # 1 hook
-    beats.append({
-        "id": "hook", "label": f"GitHub, {year_label}",
-        "name": u["name"], "number": t["contributions"], "unit": "contributions",
-        "line": f"on GitHub, across {plural(d['repo_count'], 'repo')} and {plural(r['active_days'], 'active day')}."
-        if d["repo_count"] else "on GitHub.",
-    })
 
-    # 2 shape
+def b_hook(d, c):
+    u, t, r = d["user"], d["totals"], d["rhythm"]
+    return {"id": "hook", "label": f"GitHub, {c['year_label']}",
+            "name": u["name"], "number": t["contributions"], "unit": "contributions",
+            "line": f"on GitHub, across {plural(d['repo_count'], 'repo')} and {plural(r['active_days'], 'active day')}."
+            if d["repo_count"] else "on GitHub."}
+
+
+def b_shape(d, c):
+    r = d["rhythm"]
     months = r["by_month"]
     total = sum(months) or 1
     peak_m = max(range(12), key=lambda i: months[i])
@@ -256,232 +314,434 @@ def make_story(d: dict, cta: str) -> dict:
         caption = f"{plural(r['active_days'], 'day')} with something to show. Every square counted."
     else:
         caption = f"Busiest month: {MONTHS[peak_m]}, with {n(months[peak_m])}."
-    beats.append({
-        "id": "shape", "label": "The shape of the year", "title": "Every day of the year, one square.",
-        "peak_month": peak_m, "peak_value": months[peak_m], "caption": caption,
-        "busiest": r["busiest_day"], "first_active_month": first_active,
-    })
+    return {"id": "shape", "label": "The shape of the year", "title": "Every day of the year, one square.",
+            "peak_month": peak_m, "peak_value": months[peak_m], "caption": caption,
+            "busiest": r["busiest_day"], "first_active_month": first_active}
 
-    # 3 run
+
+def yoy_base(d: dict) -> tuple[int, int] | None:
+    """(year, contributions) of the latest prior year with 10+ contributions, else None."""
+    past = [h for h in d.get("history") or [] if h.get("contributions", 0) >= 10]
+    return (past[-1]["year"], past[-1]["contributions"]) if past else None
+
+
+def b_yoy(d, c):
+    base = yoy_base(d)
+    if not base:
+        return "no prior year with 10+ contributions"
+    cur = d["totals"]["contributions"]
+    years = [h for h in d["history"] if h["year"] >= base[0] - 1 and h.get("contributions", 0) > 0] \
+        + [{"year": d["period"]["year"], "contributions": cur, "now": True}]
+    ratio = cur / base[1]
+    seq = ", then ".join(n(h["contributions"]) for h in years) + (" so far." if d["period"]["partial"] else ".")
+    if ratio >= 1.25:
+        hero = f"{ratio:.0f}x" if ratio >= 10 else f"{ratio:.1f}x".replace(".0x", "x")
+        unit = f"the contributions of {base[0]}"
+    else:  # flat or down: say the years, never the drop
+        hero = n(sum(h["contributions"] for h in years))
+        unit = f"contributions over {len(years)} years"
+    return {"id": "yoy", "label": "Year on year", "hero": hero, "unit": unit, "ratio": round(ratio, 2),
+            "years": [[h["year"], h["contributions"]] for h in years], "sub": seq[0].upper() + seq[1:]}
+
+
+def b_run(d, c):
+    r, p = d["rhythm"], d["period"]
     s = r["streak"]
-    if s["longest"] >= 3:
-        still = s["end"] == p["to"] and s["current"] == s["longest"]
-        beats.append({
-            "id": "run", "label": "The longest run",
+    if s["longest"] < 3:
+        return f"longest streak {s['longest']} days, under 3"
+    still = s["end"] == p["to"] and s["current"] == s["longest"]
+    return {"id": "run", "label": "The longest run",
             "number": s["longest"], "unit": "days in a row", "start": s["start"], "end": s["end"],
             "sub": f"{short_date(s['start'])} to {short_date(s['end'])}" + (", and still going" if still else ""),
             "facts": [[n(r["active_days"]), "days with commits"],
-                      [pct(weekend_share(d)), "of commits on weekends"]],
-        })
+                      [pct(weekend_share(d)), "of commits on weekends"]]}
 
-    # 4 clock
-    if r["commits_sampled"] >= 40 and r["peak_hour"] is not None:
-        late = r.get("latest_night_commit")
-        beats.append({
-            "id": "clock", "label": "When the work happens",
+
+def b_clock(d, c):
+    r = d["rhythm"]
+    if r["commits_sampled"] < 40 or r["peak_hour"] is None:
+        return f"{r['commits_sampled']} sampled commits, under 40"
+    late = r.get("latest_night_commit")
+    return {"id": "clock", "label": "When the work happens",
             "hours": r["by_hour"], "peak": r["peak_hour"], "peak_label": hour_label(r["peak_hour"]),
             "sub": f"Latest commit: {late['time']} on {short_date(late['date'])}." if late
-            else f"{pct(r['night_share'])} of commits after 10 pm.",
-        })
+            else f"{pct(r['night_share'])} of commits after 10 pm."}
 
-    # 5 work
-    if human_repos:
-        top = human_repos[:4]
-        beats.append({
-            "id": "work", "label": "Where the hours went",
+
+WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def week_peak(grid: list[list[int]]) -> tuple[int, int, float]:
+    """(weekday, hour, week lift) of the busiest hour of the week. Week lift is how much more of
+    that hour's commits fall on its weekday than an even 1/7 would put there (1 = even, 7 = all)."""
+    wd, h = max(((w, x) for w in range(7) for x in range(24)), key=lambda k: (grid[k[0]][k[1]], -k[0], -k[1]))
+    col = sum(grid[w][h] for w in range(7)) or 1
+    return wd, h, 7 * grid[wd][h] / col
+
+
+def b_punchcard(d, c):
+    r = d["rhythm"]
+    grid = r.get("by_weekday_hour")
+    if not grid or r["commits_sampled"] < 150:
+        return "no weekday-by-hour sample" if not grid else f"{r['commits_sampled']} sampled commits, under 150"
+    wd, h, lift = week_peak(grid)
+    days = [sum(row) for row in grid]
+    top = max(range(7), key=lambda k: days[k])
+    return {"id": "punchcard", "label": "When, exactly", "grid": grid, "peak": [wd, h], "lift": round(lift, 2),
+            "hero": f"{WEEKDAYS[wd]} {hour_label(h)}", "unit": "is the busiest hour of your week",
+            "sub": f"{DAY_NAMES[top]}s carry {pct(days[top] / (sum(days) or 1))} of your commits."}
+
+
+def b_work(d, c):
+    top = c["human_repos"][:4]
+    if not top:
+        return "no public repo that is not automation"
+    return {"id": "work", "label": "Where the hours went",
             "rows": [{"name": x["short"], "commits": x["commits"], "language": x["language"],
                       "color": x["color"] or "#A39B8E"} for x in top],
-            "lead": clause(top[0]["description"], 12),
-            "lead_name": top[0]["short"],
-        })
+            "lead": clause(top[0]["description"], 12), "lead_name": top[0]["short"]}
 
-    # optional: agents. Shown only when signed agent commits are really there.
+
+def b_languages(d, c):
+    rl = d.get("repo_languages") or {}
+    langs = rl.get("by_language") or []
+    if rl.get("with_language", 0) < 5 or len(langs) < 2:
+        return f"{rl.get('with_language', 0)} repos with a language, {len(langs)} languages"
+    top, k = langs[0]
+    rows = [[nm, v] for nm, v in langs[:4]]
+    rest = rl["repos"] - sum(v for _, v in rows)
+    if rest > 0:
+        rows.append(["other", rest])
+    return {"id": "languages", "label": "What you wrote in", "hero": top,
+            "unit": f"primary language of {k} of {plural(rl['repos'], 'repo')}", "rows": rows,
+            "repos": rl["repos"]}
+
+
+def b_agents(d, c):
     ag = d.get("agents") or {}
     auto = d["automation"]
-    agents_beat = None
-    if ag.get("agent_commits_sampled", 0) >= 10 and ag.get("agent_share", 0) >= 0.05:
-        names = [a for a, _ in ag["by_agent"]]
-        team = (names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1])
-        # One row per agent; with a single agent, one row per model it signed as.
-        sampled = sum(k for _, k in ag["by_agent_sampled"]) or 1
-        if len(ag["by_agent_sampled"]) > 1 or not ag.get("models"):
-            src = ag["by_agent_sampled"]
-        else:
-            merged_models: dict = {}
-            for m, k in ag["models"]:
-                key = re.sub(r"\s*\(.*?\)", "", m).strip()
-                merged_models[key] = merged_models.get(key, 0) + k
-            src = sorted(merged_models.items(), key=lambda kv: -kv[1])
-            sampled = sum(merged_models.values()) or 1
-        rows = [{"trailer": name, "share": round(k / sampled, 3)} for name, k in src[:3]]
-        months = [m for m in ag.get("by_month", []) if m.get("sampled", 0) >= 20]
-        trend = ""
-        if len(months) >= 4:
-            early = months[0]["agent"] / months[0]["sampled"]
-            late_m = max(months[-3:], key=lambda m: m["agent"] / m["sampled"])
-            late_s = late_m["agent"] / late_m["sampled"]
-            if late_s - early >= 0.25:
-                trend = f"{pct(early)} in {MONTHS[months[0]['month'] - 1]}, {pct(late_s)} by {MONTHS[late_m['month'] - 1]}."
-        prs_line = ""
-        if ag.get("prs_total"):
-            top = ag["prs"][0]
-            prs_line = f"{plural(ag['prs_total'], 'pull request')} opened with {top[0] if len(ag['prs']) == 1 else 'agents'}."
-        auto_line = ""
-        if auto["commits"] >= 50:
-            auto_line = f"Your cron's {n(auto['commits'])} commits are counted separately."
-        agents_beat = {
-            "id": "agents", "label": "Shipped with a team",
+    if not (ag.get("agent_commits_sampled", 0) >= 10 and ag.get("agent_share", 0) >= 0.05):
+        return f"{ag.get('agent_commits_sampled', 0)} signed commits sampled, share {pct(ag.get('agent_share', 0))}"
+    names = [a for a, _ in ag["by_agent"]]
+    team = (names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1])
+    # One row per agent; with a single agent, one row per model it signed as.
+    sampled = sum(k for _, k in ag["by_agent_sampled"]) or 1
+    if len(ag["by_agent_sampled"]) > 1 or not ag.get("models"):
+        src = ag["by_agent_sampled"]
+    else:
+        merged_models: dict = {}
+        for m, k in ag["models"]:
+            key = re.sub(r"\s*\(.*?\)", "", m).strip()
+            merged_models[key] = merged_models.get(key, 0) + k
+        src = sorted(merged_models.items(), key=lambda kv: -kv[1])
+        sampled = sum(merged_models.values()) or 1
+    rows = [{"trailer": name, "share": round(k / sampled, 3)} for name, k in src[:3]]
+    months = [m for m in ag.get("by_month", []) if m.get("sampled", 0) >= 20]
+    trend = ""
+    if len(months) >= 4:
+        early = months[0]["agent"] / months[0]["sampled"]
+        late_m = max(months[-3:], key=lambda m: m["agent"] / m["sampled"])
+        late_s = late_m["agent"] / late_m["sampled"]
+        if late_s - early >= 0.25:
+            trend = f"{pct(early)} in {MONTHS[months[0]['month'] - 1]}, {pct(late_s)} by {MONTHS[late_m['month'] - 1]}."
+    prs_line = ""
+    if ag.get("prs_total"):
+        top = ag["prs"][0]
+        prs_line = f"{plural(ag['prs_total'], 'pull request')} opened with {top[0] if len(ag['prs']) == 1 else 'agents'}."
+    auto_line = f"Your cron's {n(auto['commits'])} commits are counted separately." if auto["commits"] >= 50 else ""
+    return {"id": "agents", "label": "Shipped with a team",
             "number": round(ag["agent_share"] * 100), "unit": f"of your commits co-written with {team}",
             "rows": rows, "trend": trend, "prs": prs_line, "auto": auto_line,
-            "sub": (prs_line + " " + trend).strip() or "You wrote the brief, reviewed and merged.",
-        }
-        beats.append(agents_beat)
+            "sub": (prs_line + " " + trend).strip() or "You wrote the brief, reviewed and merged."}
 
-    # 6 ship
-    if pr["opened"] >= 5:
-        ext = pr.get("most_starred_external")
-        ext_line = ""
-        if ext and ext["repo"] != "a private repo":
-            ext_line = f"Including one into {ext['repo']}, {n(ext['stars'])} stars."
-        elif pr["external_merged"]:
-            ext_line = f"{n(pr['external_merged'])} of them into other people's repos."
-        beats.append({
-            "id": "ship", "label": "What landed",
+
+def b_models(d, c):
+    seen = [x for x in (d.get("agents") or {}).get("model_first_seen") or [] if x[1][:4] == str(d["period"]["year"])]
+    if len(seen) < 3:
+        return f"{len(seen)} versioned models in trailers, under 3"
+    seen = sorted(seen, key=lambda x: x[1])
+    family = seen[0][0].split()[0]
+    same = all(x[0].split()[0] == family and len(x[0].split()) > 1 for x in seen)
+    rows = [{"name": " ".join(x[0].split()[1:]) if same else x[0], "date": x[1]} for x in seen]
+    return {"id": "models", "label": "Every model, in order", "number": len(rows),
+            "unit": f"{family} models in your commits" if same else "coding models in your commits",
+            "rows": rows, "sub": f"First trailer of each, {short_date(rows[0]['date'])} to {short_date(rows[-1]['date'])}."}
+
+
+def b_ship(d, c):
+    pr, t = d["pull_requests"], d["totals"]
+    if pr["opened"] < 5:
+        return f"{pr['opened']} PRs opened, under 5"
+    ext = pr.get("most_starred_external")
+    ext_line = ""
+    if ext and ext["repo"] != "a private repo":
+        ext_line = f"Including one into {ext['repo']}, {n(ext['stars'])} stars."
+    elif pr["external_merged"]:
+        ext_line = f"{n(pr['external_merged'])} of them into other people's repos."
+    return {"id": "ship", "label": "What landed",
             "number": pr["merged"], "unit": "pull requests merged", "opened": pr["opened"],
             "sub": f"{pct(pr['merge_rate'])} of the {n(pr['opened'])} opened. {n(t['reviews'])} reviews given.",
-            "ext": ext_line,
-        })
+            "ext": ext_line}
 
-    # optional: the biggest change, as a diff stat
+
+def b_diff(d, c):
+    pr = d["pull_requests"]
     big = pr.get("biggest")
-    if big and big.get("title") and big["additions"] + big["deletions"] >= 300:
-        beats.append({
-            "id": "diff", "label": "The biggest change",
+    if not (big and big.get("title") and big["additions"] + big["deletions"] >= 300):
+        return "no nameable merged PR of 300+ lines"
+    return {"id": "diff", "label": "The biggest change",
             "repo": big["repo"].split("/")[-1], "pr": big.get("number"), "title": clause(big["title"], 9),
             "additions": big["additions"], "deletions": big["deletions"], "files": big["files"],
             "total_added": pr.get("lines_added", 0), "total_removed": pr.get("lines_removed", 0),
-            "at_least": pr.get("sampled", 0) < pr.get("merged", 0),
-        })
+            "at_least": pr.get("sampled", 0) < pr.get("merged", 0)}
 
-    # optional: the year's lines, added against removed, sized against a famous codebase
+
+def b_lines(d, c):
+    pr = d["pull_requests"]
     added, removed = pr.get("lines_added", 0), pr.get("lines_removed", 0)
-    if added >= 1000 and pr.get("merged", 0) >= 5:
-        ref = codebase_match(added)
-        partial = pr.get("sampled", 0) < pr.get("opened", 0)
-        beats.append({
-            "id": "lines", "label": "Lines changed",
+    if not (added >= 1000 and pr.get("merged", 0) >= 5):
+        return f"{n(added)} lines added over {pr.get('merged', 0)} merged PRs"
+    ref = codebase_match(added)
+    partial = pr.get("sampled", 0) < pr.get("opened", 0)
+    return {"id": "lines", "label": "Lines changed",
             "added": added, "removed": removed, "net": added - removed,
             "unit": "lines in merged pull requests" + (", at least" if partial else ""),
             "ref": ref,
-            "sub": f"Added: {times_phrase(ref['ratio'])} {ref['name']}." if ref else f"Net: {'+' if added >= removed else '-'}{n(abs(added - removed))} lines.",
-        })
+            "sub": f"Added: {times_phrase(ref['ratio'])} {ref['name']}." if ref
+            else f"Net: {'+' if added >= removed else '-'}{n(abs(added - removed))} lines."}
 
-    # optional: GitHub Actions time on the user's own repos
+
+def b_actions(d, c):
     act = d.get("actions") or {}
-    if act.get("minutes", 0) >= 60 and act.get("runs", 0) >= 20:
-        span = duration_words(act["minutes"])
-        bm = act.get("by_month") or [0] * 12
-        peak = max(range(12), key=lambda m: bm[m])
-        share = bm[peak] / (sum(bm) or 1)
-        tail = (f", {pct(share)} of it in {MONTHS[peak]}." if share >= 0.5
-                else f", over {plural(act['runs'], 'run')}.")
-        beats.append({
-            "id": "actions", "label": "Machine time",
+    if not (act.get("minutes", 0) >= 60 and act.get("runs", 0) >= 20):
+        return f"{n(act.get('minutes', 0))} Actions minutes over {act.get('runs', 0)} runs" if act else "no Actions data"
+    span = duration_words(act["minutes"])
+    bm = act.get("by_month") or [0] * 12
+    peak = max(range(12), key=lambda m: bm[m])
+    share = bm[peak] / (sum(bm) or 1)
+    tail = (f", {pct(share)} of it in {MONTHS[peak]}." if share >= 0.5 else f", over {plural(act['runs'], 'run')}.")
+    return {"id": "actions", "label": "Machine time",
             "number": act["minutes"], "unit": "minutes of Actions runs on your repos",
-            "by_month": act.get("by_month") or [0] * 12,
-            "runs": act["runs"],
+            "by_month": bm, "runs": act["runs"],
             "sub": (f"{span[0].upper()}{span[1:]} of machine time{tail}"
-                    + (" Partly estimated." if act.get("estimated") else "")),
-        })
+                    + (" Partly estimated." if act.get("estimated") else ""))}
 
-    # optional: releases shipped
+
+def b_releases(d, c):
     rel = d.get("releases") or {}
-    if rel.get("total", 0) >= 3:
-        named = [x for x in rel["repos"] if x["repo"]]
-        lead = named[0] if named else None
-        beats.append({
-            "id": "releases", "label": "Shipped to users",
+    if rel.get("total", 0) < 3:
+        return f"{rel.get('total', 0)} releases, under 3"
+    named = [x for x in rel["repos"] if x["repo"]]
+    lead = named[0] if named else None
+    return {"id": "releases", "label": "Shipped to users",
             "number": rel["total"], "unit": "releases tagged" if rel["total"] != 1 else "release tagged",
             "rows": [{"tag": x["latest"], "repo": x["repo"], "count": x["count"], "dates": x.get("dates") or []}
                      for x in named[:3]],
-            "sub": (burst_line(rel) or (f"{lead['repo']} went from {lead['first']} to {lead['latest']}." if lead and lead["first"] != lead["latest"]
-                    else f"Across {plural(len(rel['repos']), 'project')}.")),
-        })
+            "sub": (burst_line(rel) or (f"{lead['repo']} went from {lead['first']} to {lead['latest']}."
+                                        if lead and lead["first"] != lead["latest"]
+                                        else f"Across {plural(len(rel['repos']), 'project')}."))}
 
-    # 7 started
+
+def b_started(d, c):
     new = d["new_repos"]
     total_new = len(new) + d.get("new_private_repos", 0)
-    if total_new:
-        starred = sorted([x for x in new if x["stars"] > 0], key=lambda x: -x["stars"])
-        picks = (starred + [x for x in new if x["stars"] == 0 and x["description"]])[:3]
-        beats.append({
-            "id": "started", "label": "Started this year",
+    if not total_new:
+        return "no new repos"
+    starred = sorted([x for x in new if x["stars"] > 0], key=lambda x: -x["stars"])
+    picks = (starred + [x for x in new if x["stars"] == 0 and x["description"]])[:3]
+    return {"id": "started", "label": "Started this year",
             "number": total_new, "unit": "new repos" if total_new != 1 else "new repo",
             "rows": [{"name": x["name"], "meta": (f"{plural(x['stars'], 'star')}" if x["stars"] else (x["language"] or "")),
                       "desc": clause(x["description"], 8)} for x in picks],
             "sub": (f"{plural(d['stars']['gained'], 'star')} earned this year." if d["stars"]["gained"] else
-                    f"{len(new)} public, {d.get('new_private_repos', 0)} private."),
-        })
+                    f"{len(new)} public, {d.get('new_private_repos', 0)} private.")}
 
-    # optional: open source, merged into other people's public repos
+
+def b_oss(d, c):
+    pr = d["pull_requests"]
     ext = pr.get("external_public") or []
-    if sum(k for _, k in ext) >= 3:
-        stars = pr.get("external_public_stars") or {}
-        beats.append({
-            "id": "oss", "label": "Open source",
+    if sum(k for _, k in ext) < 3:
+        return f"{sum(k for _, k in ext)} PRs merged into others' public repos, under 3"
+    stars = pr.get("external_public_stars") or {}
+    return {"id": "oss", "label": "Open source",
             "number": sum(k for _, k in ext), "unit": "PRs merged into other people's projects",
-            "rows": [{"name": r, "count": k, "stars": stars.get(r, 0)} for r, k in ext[:3]],
-        })
+            "rows": [{"name": r, "count": k, "stars": stars.get(r, 0)} for r, k in ext[:3]]}
 
-    # 8 surprise (the automation goes into the agents beat when that beat exists)
+
+def b_surprise(d, c):
+    auto, t = d["automation"], d["totals"]
+    if auto["commits"] < 50:
+        return f"{auto['commits']} automation commits, under 50"
     human_commits = t["commits"] - auto["commits"]
-    if auto["commits"] >= 50 and not agents_beat:
-        a = max(auto["repos"], key=lambda x: x["commits"])
-        beats.append({
-            "id": "surprise", "label": "One more thing",
+    a = max(auto["repos"], key=lambda x: x["commits"])
+    return {"id": "surprise", "label": "One more thing",
             "number": auto["commits"], "unit": "commits were not you",
             "sub": (f"A scheduled job in {a['name'].split('/')[-1]}."
-                    + (f" It made more commits than you did ({n(human_commits)})." if auto["commits"] > human_commits else "")),
-        })
-    elif r.get("busiest_day") and not (auto["commits"] >= 50 and agents_beat):
-        b = r["busiest_day"]
-        beats.append({
-            "id": "surprise", "label": "One more thing",
-            "number": b["count"], "unit": f"contributions on {short_date(b['date'])}",
-            "sub": "Your busiest single day of the year.",
-        })
+                    + (f" It made more commits than you did ({n(human_commits)})." if auto["commits"] > human_commits else ""))}
 
-    # 9 identity
+
+def day_lift(d: dict) -> float:
+    r = d["rhythm"]
+    b = r.get("busiest_day") or {}
+    mean = d["totals"]["contributions"] / (r["active_days"] or 1)
+    return b.get("count", 0) / (mean or 1)
+
+
+def b_day(d, c):
+    b = d["rhythm"].get("busiest_day")
+    if not b or b["count"] < 10 or day_lift(d) < 3:
+        return "busiest day under 10, or under 3x the mean active day" if b else "no busiest day"
+    cal = dict(d["calendar"])
+    dates = sorted(cal)
+    k = dates.index(b["date"]) if b["date"] in cal else 0
+    lo = max(0, min(k - 3, len(dates) - 7))
+    week = [[x, cal[x]] for x in dates[lo:lo + 7]]
+    day = dt.date.fromisoformat(b["date"])
+    prs = b.get("prs_merged", 0)
+    return {"id": "day", "label": "The biggest day", "number": b["count"],
+            "unit": f"contributions on {short_date(b['date'])}", "date": b["date"], "week": week,
+            "prs_merged": prs,
+            "sub": f"A {day.strftime('%A')}: " + (f"{plural(prs, 'pull request')} merged." if prs >= 2
+                                                   else f"{round(day_lift(d))}x your average active day.")}
+
+
+def b_identity(d, c):
     a = archetype(d)
-    beats.append({"id": "identity", "label": f"{year_label}, in one line", "name": a["name"], "reason": a["reason"]})
+    return {"id": "identity", "label": f"{c['year_label']}, in one line", "name": a["name"], "reason": a["reason"]}
 
-    # 10 close
-    beats.append({"id": "close", "label": "Year in review", "handle": f"@{u['login']}",
-                  "year": year_label, "cta": cta})
 
-    fit_length(beats)
+def b_close(d, c):
+    return {"id": "close", "label": "Year in review", "handle": f"@{d['user']['login']}", "year": c["year_label"]}
+
+
+BUILDERS = {k: v for k, v in globals().items() if k.startswith("b_")}
+
+
+def score_beat(sid: str, d: dict, b: dict) -> float:
+    """How interesting this beat is for this person, 0 to 1 (rules in CATALOGUE)."""
+    r, pr = d["rhythm"], d["pull_requests"]
+    if sid == "yoy":
+        return 0.9 * ramp(b["ratio"], 1.25, 20) if b["ratio"] >= 1.25 else 0.1
+    if sid == "run":
+        return 0.9 * ramp(b["number"], 3, 60)
+    if sid in ("clock", "punchcard"):
+        off = max(ramp(r["night_share"], 0.10, 0.45), ramp(r["morning_share"], 0.10, 0.40), 0.2)
+        base = 0.7 * off
+        return base if sid == "clock" else min(1.0, base * b["lift"] / 2)
+    if sid == "languages":
+        return 0.5 * ramp(b["repos"], 5, 40)
+    if sid == "agents":
+        return 1.0 * ramp(b["number"] / 100, 0.05, 0.60)
+    if sid == "models":
+        return 0.75 * ramp(b["number"], 3, 10)
+    if sid == "ship":
+        return 0.9 * ramp(b["number"], 5, 500)
+    if sid == "lines":
+        return 0.85 * ramp(b["added"], 1000, 300_000)
+    if sid == "diff":
+        return 0.6 * ramp(b["additions"] + b["deletions"], 300, 20_000)
+    if sid == "actions":
+        return 0.7 * ramp(b["number"], 60, 50_000)
+    if sid == "releases":
+        return 0.8 * ramp(b["number"], 3, 60)
+    if sid == "started":
+        return 0.75 * ramp(b["number"], 1, 30)
+    if sid == "oss":
+        return 1.0 * ramp(b["number"], 3, 50)
+    if sid == "surprise":
+        return 0.8 * ramp(d["automation"]["commits"] / (d["totals"]["commits"] or 1), 0.05, 0.5)
+    if sid == "day":
+        return 0.7 * ramp(day_lift(d), 3, 30)
+    return 1.0
+
+
+def select_beats(cands: dict, scores: dict, reasons: dict, force=(), skip=(),
+                 max_total: float = MAX_TOTAL) -> tuple[list[str], dict]:
+    """Pick the film's beats from the eligible candidates. Mandatory and forced beats first; then
+    optional beats by score, one per slot, while they fit the time budget. Returns the chosen ids
+    in catalogue order and the selection record for story.json."""
+    left: dict[str, str] = {}
+    for sid in BEATS:
+        if sid in skip and not BEATS[sid]["mandatory"]:
+            left[sid] = "skipped (--skip)"
+        elif sid not in cands:
+            left[sid] = ("forced, but " if sid in force else "") + "no data: " + reasons.get(sid, "")
+    must = [s for s in BEATS if s in cands and s not in left and (BEATS[s]["mandatory"] or s in force)]
+    yielded: set[str] = set()
+    while True:
+        chosen = list(must)
+        slots = {BEATS[s]["slot"]: s for s in chosen}
+        used = sum(EST_DURATION[s] for s in chosen)
+        why: dict[str, str] = {}
+        opt = sorted((s for s in cands if s not in left and s not in chosen and s not in yielded),
+                     key=lambda s: (-scores[s], BEATS[s]["order"]))
+        for s in opt:
+            slot = BEATS[s]["slot"]
+            if YIELDS_TO.get(s) in chosen:
+                why[s] = f"{YIELDS_TO[s]} plays, and the automation is named there"
+            elif slot in slots:
+                why[s] = f"alternative {slots[slot]} scored higher" if slots[slot] not in force \
+                    else f"alternative {slots[slot]} was forced"
+            elif used + EST_DURATION[s] > max_total:
+                why[s] = f"over the time budget ({used:.0f} of {max_total:.0f} s used, needs {EST_DURATION[s]:.0f})"
+            else:
+                chosen.append(s)
+                slots[slot] = s
+                used += EST_DURATION[s]
+        clash = [s for s, other in YIELDS_TO.items() if s in chosen and other in chosen and s not in must]
+        if not clash:
+            break
+        yielded.update(clash)
+    for s in yielded:
+        why[s] = f"{YIELDS_TO[s]} plays, and the automation is named there"
+    left.update(why)
+    chosen.sort(key=lambda s: BEATS[s]["order"])
+    rec = {
+        "budget": max_total, "used": round(used, 1),
+        "chosen": [{"id": s, "slot": BEATS[s]["slot"], "mandatory": BEATS[s]["mandatory"],
+                    "forced": s in force and not BEATS[s]["mandatory"],
+                    "score": None if BEATS[s]["mandatory"] else round(scores[s], 3)} for s in chosen],
+        "left_out": [{"id": s, "slot": BEATS[s]["slot"],
+                      "score": round(scores[s], 3) if s in scores else None, "reason": left[s]}
+                     for s in sorted(left, key=lambda s: BEATS[s]["order"])],
+    }
+    return chosen, rec
+
+
+def make_story(d: dict, cta: str, force=(), skip=()) -> dict:
+    """story.json from year.json: build every eligible beat, score the optional ones, select."""
+    unknown = [s for s in (*force, *skip) if s not in BEATS]
+    if unknown:
+        raise ValueError(f"unknown beat ids: {', '.join(unknown)} (catalogue: {', '.join(BEATS)})")
+    u, p = d["user"], d["period"]
+    c = ctx_of(d)
+    cands, reasons, scores = {}, {}, {}
+    for sid in BEATS:
+        got = BUILDERS["b_" + sid](d, c)
+        if isinstance(got, dict):
+            cands[sid] = got
+            scores[sid] = round(score_beat(sid, d, got), 3)
+        else:
+            reasons[sid] = got
+    if "close" in cands:
+        cands["close"]["cta"] = cta
+    chosen, rec = select_beats(cands, scores, reasons, set(force), set(skip))
+    beats = [cands[s] for s in chosen]
+    number_beats(beats)
     for b in beats:
         b["cmd"] = COMMANDS[b["id"]].format(user=u["login"], year=p["year"])
-    return {"user": u["login"], "year": p["year"], "year_label": year_label, "calendar": d["calendar"],
-            "period_to": p.get("to"),
-            "beats": beats}
+    return {"user": u["login"], "year": p["year"], "year_label": c["year_label"], "calendar": d["calendar"],
+            "period_to": p.get("to"), "selection": rec, "beats": beats}
 
 
 # --------------------------------------------------------------------------- timing
 
 
-def fit_length(beats: list[dict], max_total: float = MAX_TOTAL) -> None:
-    """Drop the least important beats until the film fits, then number and time them."""
-    while sum(EST_DURATION[b["id"]] for b in beats) > max_total:
-        ids = [b["id"] for b in beats]
-        victim = next((x for x in DROP_ORDER if x in ids), None)
-        if victim is None:
-            break
-        beats[:] = [b for b in beats if b["id"] != victim]
+def number_beats(beats: list[dict]) -> None:
     for i, b in enumerate(beats):
         b["index"] = i + 1
         b["duration"] = EST_DURATION[b["id"]]
-
 
 def snap_times(beats: list[dict], beat_grid: list[float]) -> None:
     """Start each beat on the nearest music beat at or after its natural start."""
@@ -694,6 +954,66 @@ def month_bars(by_month: list[float], story: dict, P2: str) -> str:
 
 
 
+def col_bars(cols: list[tuple[str, int]], lit: int | None, P2: str, cls: str) -> str:
+    """A few labelled columns on one scale, the lit one in signal with its value on top; every
+    column carries its value so the small ones still read."""
+    mx = max((v for _, v in cols), default=1) or 1
+    out = "".join(
+        f'<div class="mc{" peak" if k == lit else ""}"><div class="mt"><i class="bar cbar" style="height:{max(1.2, 100 * v / mx):.1f}%">'
+        f'<span>{n(v) if v < 100_000 else compact(v)}</span></i></div><em>{E(lab)}</em></div>'
+        for k, (lab, v) in enumerate(cols))
+    return f'<div class="mbars {cls} rise" {P2}>{out}</div>'
+
+
+def punchcard(grid: list[list[int]], peak: list[int], P2: str) -> str:
+    """Seven weekday rows of 24 hour dots, dot area by commits, the busiest hour of the week lit."""
+    mx = max(max(r) for r in grid) or 1
+    rows = []
+    for w in range(7):
+        dots = "".join(
+            f'<span class="pc"><i class="w pd" style="width:{d:.1f}px;height:{d:.1f}px;background:{"var(--signal)" if [w, h] == list(peak) else "#8f7b6c"}"></i></span>'
+            if (d := 5 + 31 * (grid[w][h] / mx) ** 0.5) and grid[w][h] else '<span class="pc"><i class="pz"></i></span>'
+            for h in range(24))
+        rows.append(f'<div class="pr"><b{" class=on" if w == peak[0] else ""}>{WEEKDAYS[w]}</b>{dots}</div>')
+    ticks = "".join(f'<span style="left:{h / 24 * 100:.3f}%">{h:02d}</span>' for h in (0, 6, 12, 18))
+    return f'<div class="punchc rise" {P2}>{"".join(rows)}<div class="pticks">{ticks}</div></div>'
+
+
+LANG_FILLS = ["var(--signal)", "#8f7b6c", "#6e6258", "#5a5047", "#3a3530"]  # signal, then the muted ramp
+
+
+def lang_bar(rows: list[list], P2: str) -> str:
+    """One bar of every repo, split by primary language: the top one in signal, the rest a muted
+    ramp (not GitHub's language colours), then a key with the counts."""
+    tot = sum(v for _, v in rows) or 1
+    segs = "".join(f'<i class="bar rbar" style="width:{100 * v / tot:.2f}%;background:{LANG_FILLS[min(k, 4)]}"></i>'
+                   for k, (_, v) in enumerate(rows))
+    keys = "".join(f'<div class="lg{" rest" if nm == "other" else ""}"><i style="background:{LANG_FILLS[min(k, 4)]}"></i>'
+                   f'<b>{E(nm)}</b><em>{v}</em></div>' for k, (nm, v) in enumerate(rows))
+    return f'<div class="lstack rise" {P2}><div class="lsbar">{segs}</div><div class="legend lkeys">{keys}</div></div>'
+
+
+def model_timeline(rows: list[dict], year: int, P2: str) -> str:
+    """Each model on the year line at the date of its first trailer, then the dated list; the
+    latest model lit. At most eight rows (the latest eight)."""
+    rows = rows[-8:]
+    def x(iso):
+        d = dt.date.fromisoformat(iso)
+        return 100 * (d.timetuple().tm_yday - 1) / (365 + (d.year % 4 == 0))
+    dots, prev, lift = [], -99.0, 0
+    for k, r in enumerate(rows):  # a dot within a few days of the one before stands on top of it
+        at = x(r["date"])
+        lift = lift + 1 if at - prev < 3.5 else 0
+        prev = at
+        dots.append(f'<i class="md{" on" if k == len(rows) - 1 else ""}" style="left:{at:.2f}%;bottom:{-14 + 30 * lift}px"></i>')
+    dots = "".join(dots)
+    months = "".join(f'<span style="flex:{DAYS[k]}">{m[:1]}</span>' for k, m in enumerate(MONTHS))
+    items = "".join(f'<div class="mi{" on" if k == len(rows) - 1 else ""}"><span>{short_date(r["date"])}</span><b>{E(r["name"])}</b></div>'
+                    for k, r in enumerate(rows))
+    return (f'<div class="mtl rise" {P2}><div class="mline">{dots}</div><div class="ymonths">{months}</div></div>'
+            f'<div class="mlist rise" {P2}>{items}</div>')
+
+
 def scene_html(b: dict, story: dict, total: int, direction: str = "a", thumb: bool = False) -> str:
     """One beat as HTML. Motion is marked, not timed: data-p="1" is the hero (lands first),
     data-p="2" is the supporting group (enters after the hero settles). beat_timing() turns
@@ -773,6 +1093,48 @@ def scene_html(b: dict, story: dict, total: int, direction: str = "a", thumb: bo
         <div class="unit rise" {P1}>{E(b['unit'])}</div>
         {month_bars(b["by_month"], story, P2)}
         <div class="sub ink rise" {P2}>{E(b['sub'])}</div>
+      </div>"""
+    elif sid == "yoy":
+        body = f"""
+      <div class="stack yoy">
+        <div class="big signal rise" {P1} style="font-size:{big_size(b['hero'], 400)}px">{E(b['hero'])}</div>
+        <div class="unit rise" {P1}>{E(b['unit'])}</div>
+        {col_bars([(str(y), v) for y, v in b["years"]], len(b["years"]) - 1, P2, "yb")}
+        <div class="sub ink rise" {P2}>{E(b['sub'])}</div>
+      </div>"""
+    elif sid == "day":
+        num = n(b["number"])
+        week = [(f'{dt.date.fromisoformat(x).strftime("%a")} {int(x[8:])}', v) for x, v in b["week"]]
+        lit = next((k for k, (x, _) in enumerate(b["week"]) if x == b["date"]), None)
+        body = f"""
+      <div class="stack day">
+        <div class="big signal count" {P1} data-to="{b['number']}" data-from="0" style="font-size:{big_size(num, 400)}px">{num}</div>
+        <div class="unit rise" {P1}>{E(b['unit'])}</div>
+        {col_bars(week, lit, P2, "db")}
+        <div class="sub ink rise" {P2}>{E(b['sub'])}</div>
+      </div>"""
+    elif sid == "punchcard":
+        body = f"""
+      <div class="stack punch">
+        <div class="big signal rise" {P1} style="font-size:{big_size(b['hero'], 220)}px">{E(b['hero'])}</div>
+        <div class="unit rise" {P1}>{E(b['unit'])}</div>
+        {punchcard(b["grid"], b["peak"], P2)}
+        <div class="sub ink rise" {P2}>{E(b['sub'])}</div>
+      </div>"""
+    elif sid == "languages":
+        body = f"""
+      <div class="stack langs">
+        <div class="big signal rise" {P1} style="font-size:{big_size(b['hero'], 300)}px">{E(b['hero'])}</div>
+        <div class="unit rise" {P1}>{E(b['unit'])}</div>
+        {lang_bar(b["rows"], P2)}
+      </div>"""
+    elif sid == "models":
+        num = n(b["number"])
+        body = f"""
+      <div class="stack models">
+        <div class="mhead"><div class="big signal count" {P1} data-to="{b['number']}" data-from="0" style="font-size:260px">{num}</div>
+        <div class="unit rise" {P1}>{E(b['unit'])}</div></div>
+        {model_timeline(b["rows"], story["year"], P2)}
       </div>"""
     elif sid in ("run", "ship", "surprise", "started", "releases", "oss"):
         num = n(b["number"])
@@ -1048,16 +1410,31 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cues", help="beat JSON (hyperframes beats --json output, or a beats array) to start scenes on the beat; detected from --music when omitted")
     p.add_argument("--cta", default=CTA)
     p.add_argument("--direction", choices=["a", "b"], default=DIRECTION)
+    p.add_argument("--beats", default="", help="optional beat ids to force in, comma separated (an alternative "
+                   "in the same slot makes way; forced beats count against the time budget first)")
+    p.add_argument("--skip", default="", help="optional beat ids to leave out, comma separated")
+    p.add_argument("--catalogue", action="store_true", help="print the beat catalogue and exit")
     a = p.parse_args(argv)
+    if a.catalogue:
+        for sid, slot, must, needs, rule, score in CATALOGUE:
+            print(f"{sid:10} {slot:10} {'mandatory' if must else 'optional ':9}  {rule}; score: {score}")
+        return 0
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     if a.story:
         story = json.loads(Path(a.story).read_text())  # copy edits stay; timing is re-derived
     else:
-        story = make_story(json.loads(Path(a.year_json).read_text()), a.cta)
+        ids = lambda x: [k.strip() for k in x.split(",") if k.strip()]
+        story = make_story(json.loads(Path(a.year_json).read_text()), a.cta, ids(a.beats), ids(a.skip))
     page = build(story, out, Path(a.music) if a.music else None, Path(a.cues) if a.cues else None, a.direction)
     total = story["beats"][-1]["start"] + story["beats"][-1]["duration"]
     print(f"{len(story['beats'])} beats, {total:.1f}s -> {page}", file=sys.stderr)
+    sel = story.get("selection")
+    if sel:
+        print("chosen:   " + ", ".join(f"{x['id']}" + ("" if x["score"] is None else f" {x['score']:.2f}")
+                                       for x in sel["chosen"]), file=sys.stderr)
+        print("left out: " + "; ".join(f"{x['id']}" + ("" if x["score"] is None else f" {x['score']:.2f}") + f" ({x['reason']})"
+                                       for x in sel["left_out"]), file=sys.stderr)
     return 0
 
 

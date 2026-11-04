@@ -12,32 +12,76 @@ nothing else. Each beat opens with a typed `~ $` command and the section name, n
 (no slide counter, hash label, part numbers or progress ticks); lists are diff hunks (`+` `#8FD694`, `-` `#F2777A`). The contribution year (12 month rows x 31 days) is
 the recurring object: drawn in beat 2, returned as the closing image.
 
-## Beats
+## Beats: the catalogue
 
-| id | Shows | Data | Drops when |
-|---|---|---|---|
-| hook | name, contributions count, repos and active days | `totals`, `user` | never |
-| shape | the year grid, peak month boxed, caption | `calendar`, `rhythm.by_month` | never (caption adapts to thin years) |
-| run | longest streak drawn as a block on the year line (one tick a day) | `rhythm.streak` | streak under 3 days |
-| clock | 24 hour bars, peak hour labelled, latest commit | `rhythm.by_hour` (automation excluded) | under 40 sampled commits |
-| work | top 4 public, non-automated repos, lead repo quote | `repos` | no public repos |
-| ship | merged PRs, merge rate as one filled bar of PRs opened, notable external merge | `pull_requests` | under 5 PRs |
-| started | new repos count, top 3 by stars, stars gained | `new_repos`, `stars` | no new repos |
-| agents | share co-written with agents as a 10 x 10 waffle of all commits, split by agent (by model when one agent), agent PRs | `agents` | under 10 signed commits sampled or share under 5% |
-| diff | biggest nameable merged PR as `+adds -dels`, year's lines as a hunk | `pull_requests.biggest` | under 300 lines |
-| lines | the year's `+added -removed` as two numbers, then added, removed and a famous codebase as bars on one scale; "Added: about twice the ..." | `pull_requests.lines_added/removed`, `build.py:CODEBASES` | under 1,000 lines added or 5 merged PRs |
-| actions | GitHub Actions minutes on your repos, minutes by month (peak month lit and labelled), the total in days | `actions` | missing, under 60 minutes or 20 runs |
-| releases | releases tagged, one square per release stacked by month, the biggest burst as caption | `releases` | under 3 |
-| oss | PRs merged into others' public repos | `pull_requests.external_public` | under 3 |
-| surprise | automation commits, or busiest single day | `automation`, `rhythm.busiest_day` | when the agents beat is present |
-| identity | archetype name and the reason | derived in `build.py:archetype` | never |
-| close | year grid, handle, CTA | `user` | never |
+`build.py:CATALOGUE` is the source of truth (`build.py --catalogue` prints it); this table mirrors
+it, in film order. **Mandatory** beats are in every film that has their data and are never cut
+for time. **Optional** beats must pass their eligibility rule, then compete on score: beats that
+share a slot are alternatives and only the higher score plays; the rest are taken best first
+until the estimated beats fill `MAX_TOTAL` (78 s; chapter cards come on top). The film keeps
+this order whatever the scores.
+
+Scores run 0 to 1: a weight for how much the beat says in general, times the strength of this
+person's number on a log ramp, `ramp(x, lo, hi)`, which is 0 at the baseline `lo` and 1 at `hi`
+(a 45-day streak is 0.81 x 0.9, a 4-day one 0.1 x 0.9).
+
+| id | slot | kind | shows | data | eligible when | score |
+|---|---|---|---|---|---|---|
+| hook | hook | mandatory | name, contributions, repos and active days | `totals`, `user` | always | - |
+| shape | shape | mandatory | the year grid, peak month boxed, caption | `calendar`, `rhythm.by_month` | always (caption adapts to thin years) | - |
+| yoy | yoy | optional, new | "56x the contributions of 2025", a column a year | `history` | a prior year with 10+ contributions | 0.9 x ramp(growth, 1.25x, 20x); flat or down: the years' total, 0.1 |
+| run | run | optional | longest streak as a block on the year line | `rhythm.streak` | streak of 3+ days | 0.9 x ramp(days, 3, 60) |
+| clock | when | optional | 24 hour bars, peak hour labelled | `rhythm.by_hour` | 40+ sampled commits | 0.7 x off-hours (ramp(night share, 10%, 45%) or ramp(morning share, 10%, 40%), floor 0.2) |
+| punchcard | when | optional, new | busiest hour of the week as the hero, 7 x 24 dots by commits | `rhythm.by_weekday_hour` | 150+ sampled commits | clock score x week lift / 2 |
+| work | work | mandatory | top public, non-automated repos, lead repo quote | `repos` | 1+ public repo that is not automation | - |
+| languages | languages | optional, new | top primary language, one bar of every repo split by language | `repo_languages` | 5+ repos with a language, 2+ languages | 0.5 x ramp(repos, 5, 40) |
+| agents | agents | optional | share co-written with agents as a 10 x 10 waffle | `agents` | 10+ signed commits sampled, share 5%+ | 1.0 x ramp(share, 5%, 60%) |
+| models | models | optional, new | each model on the year line at its first trailer, latest lit | `agents.model_first_seen` | 3+ versioned models this year | 0.75 x ramp(models, 3, 10) |
+| ship | ship | optional | merged PRs, merge rate as one filled bar | `pull_requests` | 5+ PRs opened | 0.9 x ramp(merged, 5, 500) |
+| lines | code | optional | the year's `+added -removed`, bars against a famous codebase | `pull_requests.lines_added/removed` | 1,000+ lines added over 5+ merged PRs | 0.85 x ramp(added, 1k, 300k) |
+| diff | code | optional | biggest nameable merged PR as `+adds -dels` | `pull_requests.biggest` | 300+ lines | 0.6 x ramp(lines, 300, 20k) |
+| actions | actions | optional | Actions minutes, by month | `actions` | 60+ minutes over 20+ runs | 0.7 x ramp(minutes, 60, 50k) |
+| releases | releases | optional | releases, one square each by month | `releases` | 3+ releases | 0.8 x ramp(releases, 3, 60) |
+| started | started | optional | new repos, top ones by stars | `new_repos`, `stars` | 1+ new repo | 0.75 x ramp(new repos, 1, 30) |
+| oss | oss | optional | PRs merged into others' public repos | `pull_requests.external_public` | 3+ | 1.0 x ramp(PRs, 3, 50) |
+| surprise | surprise | optional | automation commits ("were not you") | `automation` | 50+ automation commits, and agents does not play (the cron is named there) | 0.8 x ramp(automation share, 5%, 50%) |
+| day | surprise | optional, new | busiest day as the hero, the week around it as columns, PRs merged that day | `rhythm.busiest_day`, `calendar` | 10+ contributions and 3x+ the mean active day | 0.7 x ramp(busiest / mean active day, 3x, 30x) |
+| identity | identity | mandatory | archetype name and the reason | derived in `build.py:archetype` | always | - |
+| close | close | mandatory | year grid, handle, CTA | `user` | always | - |
+
+Why these are mandatory: hook is frame 0 (the post), shape is the ledger's recurring object,
+work answers the question every year in review is asked (what took the time), identity is the
+ending the film is built towards, close is the cover. Ship is optional: plenty of good years are
+direct pushes, and a PR-heavy year scores it near the top anyway. Work still needs one public,
+non-automated repo; without one it is left out (private names are never shown).
+
+Week lift (punchcard): the share of the peak hour's commits that fall on its weekday, against
+an even 1/7 (1 = even, 7 = all on that day). Over 2, the week says something the hours alone
+do not, and the punchcard outscores the clock. The punchcard and clock use the same commit
+sample (top repos' history, local time, automation excluded).
+
+### story.json `selection`
+
+`build.py` records the choice: `selection.chosen` (id, slot, mandatory, forced, score) and
+`selection.left_out` (id, slot, score or null when there was no data, and the reason: no data,
+the alternative scored higher, over the time budget, skipped, or the agents beat names the
+automation). Read it before writing copy. To change the choice, rebuild from `year.json`:
+
+```bash
+python3 build.py year.json --out <out> --beats models,day --skip run
+```
+
+`--beats` forces optional beats in (counted against the budget first; an alternative in the same
+slot makes way); `--skip` leaves optional beats out. Mandatory beats cannot be skipped. A forced
+beat with no data stays out and the reason says so. Deleting a beat object from `story.json`
+and rebuilding with `--story` also drops it; adding one needs `--beats`, since its data comes
+from `year.json`.
 
 ## story.json fields safe to edit
 
 `label`, `title`, `caption`, `line`, `sub`, `ext`, `unit`, `lead`, identity `name` and `reason`,
 close `cta`, `rows[].desc`, lines and actions `sub`, `cmd` (the typed command; keep it a real command), agents `sub`/`auto`. Keep `number` fields as collected. Delete a beat object to drop it
-(not `hook`, `identity`, `close`). Durations are minimums from `build.py:MIN_DURATION`; if
+(not `hook`, `identity`, `close`). Durations are derived by `build.py:beat_timing`; if
 `check` reports `line_unread` for a line, shorten the line first, lengthen the beat second.
 
 ## Agents: how it is counted
@@ -69,3 +113,20 @@ minutes. 100 pages a repo and 600 pages in total; past either, the rest of that 
 the year (from `total_count`) are estimated at the mean minutes per run and listed in
 `estimated_repos`, and the beat says "Partly estimated." `by_month` is measured runs only, by
 the local month the run started. `actions` is null when no repo could be read; the beat drops.
+
+## The new beats: how they are counted (v8)
+
+- **yoy**: `history` is `contributionsCollection` totals for each of the two years before (one
+  GraphQL call each, skipped before the account existed). Compared with the latest prior year
+  with 10+ contributions. A partial year is compared as it stands ("so far" in the sub).
+- **punchcard**: `rhythm.by_weekday_hour`, the clock's commit sample as weekday (Monday first)
+  by local hour. Dot area is proportional to commits.
+- **day**: `rhythm.busiest_day.prs_merged` counts merged PRs whose `mergedAt` falls on that date
+  (UTC, like the calendar). The columns are the seven calendar days around it.
+- **languages**: `repo_languages` counts the primary language of each owned, non-fork repo
+  pushed this year, private ones included (counted, never named). Drawn in the ledger ramp,
+  never GitHub's language colours.
+- **models**: `agents.model_first_seen` lists each versioned model name in a `Co-authored-by`
+  trailer of the sampled commits ("(1M context)" and the like folded in), dated by one
+  oldest-first commit search per model, confirmed against the found commit's own trailer. A
+  model that never appears in the monthly sample is missed, so the count is a lower bound.

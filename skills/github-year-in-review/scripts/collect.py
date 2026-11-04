@@ -114,6 +114,11 @@ query($owner:String!,$name:String!,$author:ID!,$since:GitTimestamp!,$until:GitTi
   }
 }"""
 
+Q_TOTAL = """
+query($login:String!,$from:DateTime!,$to:DateTime!){
+  user(login:$login){contributionsCollection(from:$from,to:$to){contributionCalendar{totalContributions}}}
+}"""
+
 Q_STARS = """
 query($owner:String!,$name:String!,$after:String){
   repository(owner:$owner,name:$name){
@@ -133,6 +138,28 @@ def gh_rest(path: str, **params) -> dict:
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip()[:300])
     return json.loads(proc.stdout)
+
+
+SEARCH_GAP = 2.2  # seconds between commit searches: the search API allows 30 a minute
+_last_search = [0.0]
+
+
+def search_commits(q: str, waits: tuple = (20, 60, 120), **params) -> dict:
+    """REST commit search, paced under the 30-a-minute limit, retried on a rate limit (the
+    secondary limit clears in a minute or two). Raises RuntimeError when it never clears."""
+    for attempt in range(len(waits) + 1):
+        pause = _last_search[0] + SEARCH_GAP - time.time()
+        if pause > 0:
+            time.sleep(pause)
+        _last_search[0] = time.time()
+        try:
+            return gh_rest("search/commits", q=q, **params)
+        except RuntimeError as exc:
+            if "rate limit" not in str(exc).lower() or attempt == len(waits):
+                raise
+            print(f"commit search rate limited; waiting {waits[attempt]} s", file=sys.stderr)
+            time.sleep(waits[attempt])
+    raise RuntimeError("unreachable")
 
 
 # Coding agents leave a signature in the commit: a Co-authored-by trailer, a "Generated with"
@@ -224,13 +251,14 @@ def agent_sample(user: str, start: dt.date, end: dt.date, exclude: list[str], pe
     """
     skip = " ".join(f"-repo:{r}" for r in exclude)
     months, by_agent, models, first_seen = [], collections.Counter(), collections.Counter(), None
+    model_first: dict[str, str] = {}
     total = sampled = agent_hits = bot_hits = 0
     est_agent = est_by = 0.0
     est_by_agent = collections.Counter()
     for a, b in month_ranges(start, end):
         q = f"author:{user} author-date:{a}..{b} {skip}".strip()
         try:
-            page = gh_rest("search/commits", q=q, per_page=per_month, sort="author-date", order="desc")
+            page = search_commits(q, per_page=per_month, sort="author-date", order="desc")
         except RuntimeError as exc:  # rate limit or a search outage: record and carry on
             months.append({"month": a.month, "total": None, "sampled": 0, "agent": 0, "error": str(exc)[:120]})
             continue
@@ -248,6 +276,10 @@ def agent_sample(user: str, start: dt.date, end: dt.date, exclude: list[str], pe
                 models.update(c["models"])
                 when = it["commit"]["author"]["date"][:10]
                 first_seen = min(first_seen or when, when)
+                for m in c["models"]:
+                    key = model_key(m)
+                    if key:
+                        model_first[key] = min(model_first.get(key, when), when)
             elif c["bot"]:
                 bot_hits += 1
         k = len(items)
@@ -278,7 +310,38 @@ def agent_sample(user: str, start: dt.date, end: dt.date, exclude: list[str], pe
         "models": models.most_common(5),
         "by_month": months,
         "first_seen": first_seen,
+        # versioned model name -> earliest date in the sample; refined by model_first_dates()
+        "model_first_seen": sorted(([k, v] for k, v in model_first.items()), key=lambda kv: kv[1]),
     }
+
+
+def model_key(name: str) -> str | None:
+    """A trailer's model name as one timeline entry: "Claude Opus 4.6 (1M context)" ->
+    "Claude Opus 4.6". Names without a version ("Claude", "claude[bot]") are not models."""
+    key = " ".join(re.sub(r"\s*\(.*?\)|\[bot\]", "", name).split())
+    return key if re.search(r"\d", key) else None
+
+
+def model_first_dates(user: str, start: dt.date, end: dt.date, sampled: list, exclude: list[str]) -> list:
+    """The first commit of the year each model co-signed. The monthly sample sees at most 100
+    commits a month, newest first, so its first-seen date can run late; one search per model,
+    oldest first, finds the real first trailer. A hit only counts when the commit's own trailer
+    names that model; otherwise the sample's date stands."""
+    skip = " ".join(f"-repo:{r}" for r in exclude)
+    out = []
+    for key, seen in sampled:
+        when = seen
+        q = f'author:{user} author-date:{start}..{end} "Co-authored-by: {key}" {skip}'.strip()
+        try:
+            items = search_commits(q, per_page=10, sort="author-date", order="asc").get("items", [])
+        except RuntimeError:
+            items = []
+        for it in items:
+            if key in {model_key(m) for m in classify_commit(it["commit"]["message"])["models"]}:
+                when = min(when, it["commit"]["author"]["date"][:10])
+                break
+        out.append([key, when])
+    return sorted(out, key=lambda kv: kv[1])
 
 
 def iso_time(x: str | None) -> dt.datetime | None:
@@ -558,6 +621,7 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
     biggest = max(nameable or merged, key=lambda p: p["additions"] + p["deletions"], default=None)
     lines_added = sum(p["additions"] for p in merged)
     lines_removed = sum(p["deletions"] for p in merged)
+    merged_by_day = collections.Counter((p.get("mergedAt") or "")[:10] for p in merged)  # UTC, like the calendar
     pr_by_repo = collections.Counter(public_name(p["repository"], include_private) for p in merged)
     # Open-source contributions: merged PRs into public repos owned by someone else.
     external_public = collections.Counter(
@@ -604,6 +668,7 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
     # so "night owl" describes the person, not their scheduler.
     hours = collections.Counter()
     weekdays = collections.Counter()
+    week_hours = collections.Counter()  # (weekday, hour): the punchcard
     verbs = collections.Counter()
     sampled = 0
     late = None  # latest-night commit (by local clock between 00:00 and 04:00, latest wins)
@@ -640,6 +705,7 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
             when = dt.datetime.fromisoformat(c["committedDate"].replace("Z", "+00:00")).astimezone(zone)
             hours[when.hour] += 1
             weekdays[when.weekday()] += 1
+            week_hours[(when.weekday(), when.hour)] += 1
             sampled += 1
             v = commit_verb(c["messageHeadline"])
             if v:
@@ -661,6 +727,8 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
     # Agents: commit signatures from a month-stratified search sample, and PRs agents opened
     # or co-wrote. Optional in the film: the beat only shows when agents were actually there.
     agents = agent_sample(user, start.date(), end.date(), automated_full)
+    agents["model_first_seen"] = model_first_dates(user, start.date(), end.date(), agents["model_first_seen"],
+                                                   automated_full)
     pr_range = f"created:{start.date()}..{end.date()}"
     agent_prs = {}
     for name, sig in AGENT_PR_QUERIES:
@@ -673,6 +741,22 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
             agent_prs[name] = agent_prs.get(name, 0) + k
     agents["prs"] = merge_agent_prs(agent_prs, prs)
     agents["prs_total"] = sum(k for _, k in agents["prs"])
+
+    # Year on year: the two years before, one cheap call each (0 before the account existed).
+    history = []
+    for y in (year - 2, year - 1):
+        if y < int(prof["createdAt"][:4]):
+            continue
+        a = dt.datetime(y, 1, 1, tzinfo=dt.timezone.utc)
+        b = dt.datetime(y, 12, 31, 23, 59, 59, tzinfo=dt.timezone.utc)
+        tot = gh_graphql(Q_TOTAL, login=user, **{"from": a.isoformat(), "to": b.isoformat()})["user"]
+        history.append({"year": y, "contributions": tot["contributionsCollection"]["contributionCalendar"]["totalContributions"]})
+
+    # Primary language of each owned, non-fork repo pushed this year (private ones counted, never named).
+    live = [r for r in owned if not r.get("isFork") and (r.get("pushedAt") or r.get("createdAt") or "")[:4] >= str(year)]
+    by_lang = collections.Counter((r.get("primaryLanguage") or {}).get("name") for r in live)
+    repo_languages = {"repos": len(live), "with_language": sum(v for k, v in by_lang.items() if k),
+                      "by_language": [[k, v] for k, v in by_lang.most_common() if k]}
 
     # Releases published this year on owned repos (private ones counted, never named).
     releases = []
@@ -727,7 +811,8 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
             "active_days": len(active),
             "active_share": round(len(active) / len(days), 4) if days else 0,
             "streak": streaks(days),
-            "busiest_day": {"date": busiest["date"], "count": busiest["contributionCount"]} if busiest else None,
+            "busiest_day": ({"date": busiest["date"], "count": busiest["contributionCount"],
+                             "prs_merged": merged_by_day.get(busiest["date"], 0)} if busiest else None),
             "by_month": [by_month[m] for m in range(1, 13)],
             "by_weekday": [by_weekday[i] for i in range(7)],  # Monday first
             "weekend_share": round(weekend / total_cal, 4) if total_cal else 0,
@@ -738,6 +823,7 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
             "latest_night_commit": late,
             "commits_sampled": sampled,
             "by_weekday_sampled": [weekdays[i] for i in range(7)],
+            "by_weekday_hour": [[week_hours[(w, h)] for h in range(24)] for w in range(7)],  # Monday first, local
         },
         "automation": {
             "repos": automated,
@@ -799,6 +885,8 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
         },
         "agents": agents,
         "actions": actions,
+        "history": history,
+        "repo_languages": repo_languages,
         "releases": {"total": sum(x["count"] for x in releases), "repos": releases[:6]},
         "commit_verbs": verbs.most_common(8),
         "first_commit": first_commit,

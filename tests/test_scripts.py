@@ -101,6 +101,23 @@ class AgentDetection(unittest.TestCase):
         self.assertEqual(got, [("Claude Code", 5), ("Codex", 1), ("Devin", 1)])
         self.assertEqual(collect.merge_agent_prs({}, []), [])
 
+    def test_model_key_folds_variants_and_skips_unversioned(self):
+        self.assertEqual(collect.model_key("Claude Opus 4.6 (1M context)"), "Claude Opus 4.6")
+        self.assertIsNone(collect.model_key("Claude"))
+        self.assertIsNone(collect.model_key("claude[bot]"))
+
+    def test_commit_search_waits_out_a_rate_limit(self):
+        from unittest import mock
+        calls = []
+        def fake(path, **params):
+            calls.append(path)
+            if len(calls) == 1:
+                raise RuntimeError("You have exceeded a secondary rate limit")
+            return {"items": []}
+        with mock.patch.object(collect, "gh_rest", fake), mock.patch.object(collect.time, "sleep", lambda s: None):
+            self.assertEqual(collect.search_commits("q"), {"items": []})
+        self.assertEqual(len(calls), 2)
+
     def test_month_ranges(self):
         r = collect.month_ranges(dt.date(2026, 11, 15), dt.date(2027, 1, 3))
         self.assertEqual(r, [(dt.date(2026, 11, 15), dt.date(2026, 11, 30)),
@@ -113,6 +130,175 @@ def agents_block(share=0.6, sampled=300, est=600):
             "by_agent": [["Claude", est - 50], ["Codex", 50]],
             "by_agent_sampled": [["Claude", sampled - 20], ["Codex", 20]],
             "models": [], "by_month": [], "prs": [["Claude Code", 40]], "prs_total": 40}
+
+
+def strong_year() -> dict:
+    """A busy year where every beat in the catalogue has data."""
+    d = year_fixture()
+    days = []
+    x = dt.date(2025, 1, 1)
+    while x.year == 2025:
+        days.append([x.isoformat(), 400 if x.isoformat() == "2025-03-21" else (8 if x.weekday() < 6 else 2)])
+        x += dt.timedelta(days=1)
+    grid = [[2] * 24 for _ in range(7)]
+    grid[1][20] = 90  # Tuesday 8 pm owns the evening
+    hours = [sum(grid[w][h] for w in range(7)) for h in range(24)]
+    d.update(
+        calendar=days,
+        totals={"contributions": 3200, "commits": 2400, "prs": 600, "reviews": 40, "issues": 30},
+        rhythm={"active_days": 365, "weekend_share": 0.2,
+                "streak": {"longest": 45, "start": "2025-02-01", "end": "2025-03-17", "current": 0},
+                "busiest_day": {"date": "2025-03-21", "count": 400, "prs_merged": 60},
+                "by_month": [250] * 12, "peak_hour": 20, "by_hour": hours, "night_share": 0.3, "morning_share": 0.05,
+                "latest_night_commit": {"time": "03:10", "date": "2025-05-02"}, "commits_sampled": sum(hours),
+                "by_weekday_sampled": [sum(r) for r in grid], "by_weekday_hour": grid},
+        repos=[{"name": "me/app", "short": "app", "private": False, "commits": 900, "language": "Python",
+                "color": "#3572A5", "description": "An app. It does things."}],
+        repo_count=12,
+        repo_languages={"repos": 20, "with_language": 18, "by_language": [["Python", 9], ["TypeScript", 6], ["Go", 3]]},
+        history=[{"year": 2023, "contributions": 40}, {"year": 2024, "contributions": 100}],
+        agents=dict(agents_block(), model_first_seen=[["Claude Opus 4.5", "2025-01-09"], ["Claude Sonnet 4.6", "2025-03-08"],
+                                                      ["Claude Opus 4.6", "2025-03-14"], ["Claude Opus 4.8", "2025-05-29"]]),
+        pull_requests=dict(year_fixture()["pull_requests"], opened=700, merged=600, merge_rate=0.86, sampled=700,
+                           lines_added=250_000, lines_removed=60_000, external_merged=12,
+                           external_public=[["big/oss", 12]], external_public_stars={"big/oss": 9000},
+                           biggest={"repo": "me/app", "title": "Rewrite the engine", "additions": 9000,
+                                    "deletions": 3000, "files": 80, "number": 7}),
+        actions={"minutes": 20_000, "runs": 4000, "by_month": [1000] * 12, "estimated": False},
+        releases={"total": 30, "repos": [{"repo": "app", "count": 30, "first": "v0.1", "latest": "v3.0",
+                                          "latest_date": "2025-12-01", "dates": ["2025-06-01"] * 30}]},
+        new_repos=[{"name": "fresh", "created": "2025-02-01", "stars": 30, "language": "Go", "description": "New thing."}] * 3,
+        stars={"gained": 40, "by_repo": [], "total_owned": 50},
+        automation={"repos": [{"name": "me/cron", "commits": 900}], "commits": 900},
+    )
+    return d
+
+
+class Catalogue(unittest.TestCase):
+    MANDATORY = ("hook", "shape", "work", "identity", "close")
+
+    def story(self, d=None, **kw):
+        return build.make_story(d or strong_year(), build.CTA, **kw)
+
+    def test_catalogue_is_complete(self):
+        self.assertEqual(set(build.BEATS), set(build.EST_DURATION))
+        self.assertEqual(set(build.BEATS), set(build.COMMANDS) - {"chapter"})
+        self.assertEqual({s for s, b in build.BEATS.items() if b["mandatory"]}, set(self.MANDATORY))
+        for sid in build.BEATS:
+            self.assertIn("b_" + sid, build.BUILDERS)
+
+    def test_mandatory_always_present_and_order_fixed(self):
+        for d in (strong_year(), year_fixture(repos=strong_year()["repos"])):
+            ids = [b["id"] for b in self.story(d)["beats"]]
+            for sid in self.MANDATORY:
+                self.assertIn(sid, ids)
+            self.assertEqual(ids, sorted(ids, key=lambda s: build.BEATS[s]["order"]))
+
+    def test_alternatives_are_exclusive_and_the_higher_score_wins(self):
+        st = self.story()
+        ids = [b["id"] for b in st["beats"]]
+        for slot in {b["slot"] for b in build.BEATS.values()}:
+            self.assertLessEqual(sum(1 for s in ids if build.BEATS[s]["slot"] == slot), 1, slot)
+        left = {x["id"]: x for x in st["selection"]["left_out"]}
+        chosen = {x["id"]: x for x in st["selection"]["chosen"]}
+        when = "punchcard" if "punchcard" in chosen else "clock"
+        other = "clock" if when == "punchcard" else "punchcard"
+        self.assertEqual(when, "punchcard")  # Tuesday holds most of the 8 pm hour: the week says more
+        self.assertGreaterEqual(chosen[when]["score"], left[other]["score"])
+        self.assertIn("alternative", left[other]["reason"])
+
+    def test_budget_respected_and_selection_recorded(self):
+        st = self.story()
+        used = sum(build.EST_DURATION[b["id"]] for b in st["beats"])
+        self.assertLessEqual(used, build.MAX_TOTAL)
+        sel = st["selection"]
+        self.assertEqual([x["id"] for x in sel["chosen"]], [b["id"] for b in st["beats"]])
+        self.assertTrue(any("time budget" in x["reason"] for x in sel["left_out"]))
+        for x in sel["left_out"]:
+            self.assertTrue(x["reason"])
+        # every catalogue beat is accounted for, once
+        self.assertEqual(sorted([x["id"] for x in sel["chosen"]] + [x["id"] for x in sel["left_out"]]), sorted(build.BEATS))
+        # optional beats are taken best first: nothing left out for time outscores a chosen one that costs as much
+        chosen_scores = [x["score"] for x in sel["chosen"] if x["score"] is not None]
+        for x in sel["left_out"]:
+            if "time budget" in x["reason"]:
+                self.assertLessEqual(x["score"], max(chosen_scores))
+
+    def test_force_and_skip(self):
+        st = self.story(force=["clock", "models"], skip=["agents"])
+        ids = [b["id"] for b in st["beats"]]
+        self.assertIn("clock", ids)
+        self.assertNotIn("punchcard", ids)
+        self.assertIn("models", ids)
+        self.assertNotIn("agents", ids)
+        self.assertLessEqual(sum(build.EST_DURATION[s] for s in ids), build.MAX_TOTAL)
+        with self.assertRaises(ValueError):
+            self.story(force=["nope"])
+        # forcing a beat with no data leaves it out and says why
+        st = build.make_story(year_fixture(), build.CTA, force=["models"])
+        self.assertIn("forced, but no data", next(x for x in st["selection"]["left_out"] if x["id"] == "models")["reason"])
+
+    def test_surprise_yields_to_agents(self):
+        st = self.story(force=["agents"])
+        self.assertNotIn("surprise", [b["id"] for b in st["beats"]])
+        d = strong_year()
+        d["agents"] = None
+        d["rhythm"]["busiest_day"]["count"] = 20  # weak busiest day: the cron is the better surprise
+        sel = {x["id"]: x for x in self.story(d)["selection"]["chosen"]}
+        self.assertIn("surprise", sel)
+
+    def test_new_beats_drop_on_thin_data(self):
+        st = build.make_story(year_fixture(), build.CTA)
+        ids = [b["id"] for b in st["beats"]]
+        for sid in ("punchcard", "day", "yoy", "languages", "models"):
+            self.assertNotIn(sid, ids)
+            self.assertIn("no data", next(x for x in st["selection"]["left_out"] if x["id"] == sid)["reason"])
+        d = strong_year()
+        d["history"] = [{"year": 2024, "contributions": 4}]
+        d["agents"]["model_first_seen"] = d["agents"]["model_first_seen"][:2]
+        d["repo_languages"] = {"repos": 6, "with_language": 6, "by_language": [["Python", 6]]}
+        d["rhythm"]["commits_sampled"] = 120
+        d["rhythm"]["busiest_day"]["count"] = 15
+        left = {x["id"]: x["reason"] for x in self.story(d)["selection"]["left_out"]}
+        for sid in ("punchcard", "day", "yoy", "languages", "models"):
+            self.assertIn("no data", left[sid], sid)
+
+    def test_new_beats_on_strong_data(self):
+        for sid in ("punchcard", "day", "yoy", "languages", "models"):
+            st = self.story(force=[sid])
+            b = next(x for x in st["beats"] if x["id"] == sid)
+            with tempfile.TemporaryDirectory() as tmp:
+                html = build.build(st, Path(tmp), None, None).read_text()
+            self.assertIn(f'id="s-{sid}"', html)
+            if sid == "punchcard":
+                self.assertEqual(b["hero"], "Tue 8 pm")
+                self.assertEqual(html.count('class="pr"'), 7)
+            if sid == "day":
+                self.assertEqual((b["number"], b["sub"]), (400, "A Friday: 60 pull requests merged."))
+                self.assertEqual(len(b["week"]), 7)
+            if sid == "yoy":
+                self.assertEqual((b["hero"], b["unit"]), ("32x", "the contributions of 2024"))
+                self.assertEqual(b["sub"], "40, then 100, then 3,200.")
+            if sid == "languages":
+                self.assertEqual((b["hero"], b["unit"]), ("Python", "primary language of 9 of 20 repos"))
+                self.assertEqual(sum(v for _, v in b["rows"]), 20)
+            if sid == "models":
+                self.assertEqual((b["number"], b["unit"]), (4, "Claude models in your commits"))
+                self.assertEqual(b["rows"][-1]["name"], "Opus 4.8")
+
+    def test_yoy_never_shames(self):
+        d = strong_year()
+        d["history"] = [{"year": 2023, "contributions": 5000}, {"year": 2024, "contributions": 4000}]
+        b = next(x for x in self.story(d, force=["yoy"])["beats"] if x["id"] == "yoy")
+        self.assertEqual((b["hero"], b["unit"]), ("12,200", "contributions over 3 years"))
+        self.assertEqual(build.score_beat("yoy", d, b), 0.1)
+
+    def test_scores_follow_strength(self):
+        d = strong_year()
+        self.assertGreater(build.ramp(45, 3, 60), 0.8)
+        self.assertLess(build.ramp(4, 3, 60), 0.15)
+        self.assertGreater(build.score_beat("yoy", d, {"ratio": 56}), 0.85)
+        self.assertLess(build.score_beat("yoy", d, {"ratio": 1.3}), 0.05)
 
 
 class Story(unittest.TestCase):
@@ -160,16 +346,6 @@ class Story(unittest.TestCase):
         ids = [b["id"] for b in build.make_story(year_fixture(pull_requests=pr, releases=rel), build.CTA)["beats"]]
         self.assertIn("diff", ids)
         self.assertIn("releases", ids)
-
-    def test_fit_length_caps_the_film(self):
-        beats = [{"id": i} for i in ("hook", "shape", "run", "clock", "work", "agents", "ship", "lines", "actions", "diff",
-                                     "releases", "started", "oss", "surprise", "identity", "close")]
-        build.fit_length(beats)
-        self.assertLessEqual(sum(b["duration"] for b in beats), build.MAX_TOTAL)
-        ids = [b["id"] for b in beats]
-        self.assertEqual((ids[0], ids[-1]), ("hook", "close"))
-        self.assertIn("agents", ids)
-        self.assertEqual([b["index"] for b in beats], list(range(1, len(beats) + 1)))
 
     def test_clause(self):
         self.assertEqual(build.clause("Twenty days of an unattended SDLC: Claude supervises"),

@@ -548,9 +548,9 @@
       .yline .t.f { height: 12px; background: var(--rule); opacity: 0.4; }
       .yline .t.a { height: 54px; background: #5a5047; }
       .yline .t.r { height: 130px; background: var(--signal); }
-      .ymonths { display: flex; margin-top: 14px; font-size: 26px; color: var(--muted); }
+      .ymonths { display: flex; margin-top: 14px; font-size: 28px; color: var(--muted); }
       .ymonths span { flex: 1; }
-      .ykey { display: flex; gap: 40px; margin-top: 22px; font-size: 26px; color: var(--muted); }
+      .ykey { display: flex; gap: 40px; margin-top: 22px; font-size: 28px; color: var(--muted); }
       .ykey i { display: inline-block; width: 22px; height: 22px; border-radius: 3px; margin-right: 12px; vertical-align: -3px; }
       .ykey .kr { background: var(--signal); }
       .ykey .ka { background: #5a5047; }
@@ -558,7 +558,7 @@
       .nw { white-space: nowrap; }
       .sub, .dl { text-wrap: balance; }
       .hb .bar { position: relative; }
-      .hb.peak .bar span { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 10px; font-size: 26px; color: var(--signal); font-weight: 700; white-space: nowrap; }
+      .hb.peak .bar span { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 10px; font-size: 28px; color: var(--signal); font-weight: 700; white-space: nowrap; }
       .rate { margin-top: 48px; width: 912px; }
       .rtrack { height: 64px; background: var(--rule); border-radius: 6px; overflow: hidden; }
       .rbar { display: block; height: 100%; background: var(--signal); transform-origin: 0 50%; }
@@ -591,6 +591,42 @@
       .mc.peak .cbar { background: var(--signal); }
       .cbar span { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 10px; font-size: 28px; color: var(--signal); font-weight: 700; white-space: nowrap; }
       .mc em { font-style: normal; text-align: center; margin-top: 12px; font-size: 28px; color: var(--muted); }
+      /* catalogue beats: year on year and the biggest day (labelled columns), the punchcard,
+         languages by repo, the model timeline */
+      .mc:not(.peak) .cbar span { color: var(--ink); font-weight: 500; }
+      .yb, .db { height: 360px; margin-top: 70px; }
+      .yb { gap: 48px; }
+      .yb .mt { justify-content: center; }
+      .yb .cbar { width: 62%; }
+      .yb em, .db em { font-size: 30px; }
+      .mc.peak em { color: var(--signal); font-weight: 700; }
+      .punch .unit, .langs .unit, .yoy .unit, .day .unit { font-size: 60px; }
+      .punchc { margin-top: 50px; width: 912px; }
+      .pr { display: flex; align-items: center; height: 54px; }
+      .pr b { width: 84px; flex: none; font-size: 28px; font-weight: 500; color: var(--muted); }
+      .pr b.on { color: var(--signal); font-weight: 700; }
+      .pc { flex: 1; display: flex; align-items: center; justify-content: center; height: 100%; }
+      .pc .pd { border-radius: 50%; aspect-ratio: auto; }
+      .pc .pz { display: block; width: 4px; height: 4px; border-radius: 50%; background: var(--rule); }
+      .pticks { position: relative; height: 40px; margin: 10px 0 0 84px; border-top: 2px solid var(--rule); font-size: 28px; color: var(--muted); }
+      .pticks span { position: absolute; top: 8px; }
+      .lstack { margin-top: 56px; width: 912px; }
+      .lsbar { display: flex; height: 72px; border-radius: 6px; overflow: hidden; }
+      .lsbar .rbar { flex: none; height: 100%; box-shadow: inset -4px 0 0 var(--ground); }
+      .lkeys { margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 22px 60px; }
+      .lkeys .lg em { color: var(--ink); }
+      .lkeys .lg.rest i { box-shadow: none; }
+      .mhead { display: flex; align-items: flex-end; gap: 40px; }
+      .mhead .unit { font-size: 60px; padding-bottom: 14px; max-width: 600px; }
+      .mtl { margin-top: 56px; width: 912px; }
+      .mline { position: relative; height: 64px; border-bottom: 3px solid #5a5047; margin-bottom: 4px; }
+      .md { position: absolute; bottom: -14px; width: 24px; height: 24px; margin-left: -12px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 4px var(--ground); }
+      .md.on { background: var(--signal); }
+      .mlist { margin-top: 34px; display: flex; flex-direction: column; gap: 6px; }
+      .mi { display: flex; align-items: baseline; gap: 36px; height: 62px; }
+      .mi span { width: 150px; flex: none; font-size: 32px; color: var(--muted); }
+      .mi b { font-family: "Bricolage", sans-serif; font-stretch: 75%; font-size: 52px; font-weight: 700; color: var(--ink); }
+      .mi.on span, .mi.on b { color: var(--signal); }
     </style>
   </head>
   <body>

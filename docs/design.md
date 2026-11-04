@@ -14,8 +14,8 @@ One question per beat, one focal point per beat (usually one number or one shape
 ## Format
 
 - 1080x1350 (4:5), 30 fps, H.264 + AAC, under 50 MB.
-- 36-60 s depending on which beats have data; capped at 60 s by `build.py:fit_length`, which drops
-  beats in `DROP_ORDER` (rhythm detail goes before the flattering optional beats).
+- 36-80 s depending on which beats have data; the beats are chosen from a catalogue by score
+  within a time budget (v8, below).
 - Text-first: everything that matters is on screen, large enough to read on a phone (labels
   at least 34 px, numbers 160-360 px). Music is optional and sits under the edit.
 - Every frame carries the owner's handle and the year in a footer rail, with a beat counter,
@@ -221,6 +221,35 @@ PR's additions are. Measured on 2026-11-04 with `wc -l` over a shallow clone unl
 | Quake | 237,508 | github.com/id-Software/Quake `bf4ac42`, WinQuake + QuakeWorld .c .h .s .asm |
 | Quake III Arena | 332,692 | github.com/id-Software/Quake-III-Arena `dbe4ddb`, code/ .c .h .s .asm .cpp |
 | Linux kernel | about 40,000,000 | Phoronix, "The Linux Kernel Tree About To Hit 40 Million Lines" (April 2026), all lines including blanks and comments; not measured here |
+
+## v8: a catalogue of beats, chosen by score (2026-11-04)
+
+Feedback on the 36-tile idea board: "2, 5, 7, 18, 19 should be added. In the skill it should have
+a whole list of options and the best or most appropriate should be chosen. Maybe some are
+mandatory and some are optional."
+
+- **What was wrong.** Beats were in or out by thresholds, then cut in a fixed `DROP_ORDER` when
+  the film ran long. Every year lost the same beats first, whatever was strong for that person,
+  and nothing recorded why a beat was missing.
+- **The catalogue.** `build.py:CATALOGUE` lists every beat in film order with its slot,
+  mandatory or optional, the data it needs, its eligibility rule and its score rule (the table
+  is in `references/story.md`). Mandatory: hook, shape, work, identity, close. Optional beats
+  are scored 0 to 1 (a weight for the beat times a log ramp of the person's number against a
+  baseline), alternatives in one slot keep only the best, and the best are taken until 78 s.
+  `story.json:selection` records what was chosen and what was left out with scores and reasons;
+  `--beats` and `--skip` override.
+- **Slots with alternatives.** when: clock or punchcard (the punchcard wins when one weekday
+  holds over 2/7 of the peak hour); code: lines or the biggest change (both say how much code
+  moved; v7 already cut the biggest change first); surprise: the automation or the biggest day.
+- **New beats.** Year on year (a column a year, growth as the hero, the years' total when flat
+  or down, never the drop); the punchcard (7 x 24 dots, the busiest hour of the week lit); the
+  biggest day (the week around it as columns, PRs merged that day); languages by repo (one bar
+  split by primary language in signal and the muted ramp, not GitHub's colours); the model
+  timeline (each model on the year line at its first trailer, a dated list, the latest lit).
+- **Collection.** Two prior-year totals, the weekday-by-hour grid, PRs merged on the busiest day,
+  primary language counts, and a first-trailer date per model. Commit search is now paced under
+  30 a minute and retried on the secondary rate limit, which had silently emptied the agents
+  sample for September to November.
 
 ## Archetype
 
