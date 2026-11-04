@@ -67,7 +67,7 @@ python3 <skill-dir>/scripts/build.py <out>/year.json --out <out> \
 ```
 
 This writes `<out>/story.json` (beats, copy, timings), `<out>/composition/` (the film) and
-`<out>/thumbnail/` (a one-second still of the close for the cover, see step 4). Beats, their
+`<out>/thumbnail/` (a one-second still of the identity for the cover, see step 4). Beats, their
 data, and fallbacks are in [references/story.md](references/story.md). Beats with thin data drop
 out, so a quiet year makes a shorter film, not an empty one.
 
@@ -128,8 +128,12 @@ ffmpeg -y -i year-in-review.mp4 -i poster.jpg \
   -c:a aac -b:a 160k -movflags +faststart tmp.mp4 && mv tmp.mp4 year-in-review.mp4
 ```
 
-Thumbnail: the close (year grid, handle, "<year>, in review.") as a clean still, with no slide
-counter, hash label, footer rail or CTA. Upload it as the video's custom thumbnail on LinkedIn
+Thumbnail: the identity as a cover. A mono kicker at the top ("@<user> / <year>, in one line"),
+the archetype name huge in condensed Bricolage, one word a line with the last word in signal
+orange, then the stats behind it in mono ink ("57% of commits shipped with agents." / "38% on
+weekends."), all from `story.json`; no slide counter, hash label, footer rail or CTA. Long names
+shrink to fit 1080 px. A story with no identity beat gets the close (year grid, handle,
+"<year>, in review.") instead. Upload it as the video's custom thumbnail on LinkedIn
 (it matches the video's 4:5 aspect ratio, which LinkedIn expects) and use it anywhere a cover
 image is asked for:
 
@@ -140,7 +144,7 @@ npx hyperframes snapshot thumbnail --at 0.5 --no-end -o thumbnail/shots
 cp thumbnail/shots/frame-00-at-0.5s.png thumbnail.png
 ```
 
-**Gate:** `year-in-review.mp4` is H.264, 1080x1350, under 50 MB, 25-75 s (build caps at 70 plus chapter cards); `poster.jpg` exists; `thumbnail.png` is 1080x1350 and you have looked at it (no counters, no rail, nothing clipped).
+**Gate:** `year-in-review.mp4` is H.264, 1080x1350, under 50 MB, 25-75 s (build caps at 70 plus chapter cards); `poster.jpg` exists; `thumbnail.png` is 1080x1350 and you have looked at it (no counters, no rail, the name on its lines and nothing clipped).
 
 Write `<out>/share-copy.txt`: two or three plain sentences in the user's voice, built from the
 strongest true facts (the archetype, one number, one project). No hashtag wall; at most two.

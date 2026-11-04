@@ -74,8 +74,8 @@ cd .. && npx hyperframes snapshot thumbnail --at 0.5 --no-end -o thumbnail/shots
   && cp thumbnail/shots/frame-00-at-0.5s.png thumbnail.png   # 1080x1350 cover, no chrome
 ```
 
-Outputs: `year-in-review.mp4` (1080x1350), `thumbnail.png` (1080x1350, the closing screen
-without counters, rail or CTA; upload it as LinkedIn's custom video thumbnail), `poster.jpg`
+Outputs: `year-in-review.mp4` (1080x1350), `thumbnail.png` (1080x1350, the identity as a cover:
+"The Weekend Orchestrator" and the stats behind it, without counters, rail or CTA; upload it as LinkedIn's custom video thumbnail), `poster.jpg`
 (frame 0, baked into the video), `share-copy.txt`.
 
 ## Privacy and honesty
