@@ -189,6 +189,39 @@ a phone"), units second (its squares said nothing about when). Fixed from the ju
 the clock keeps bars, the "others" legend fits, empty squares and the solo swatch lifted to
 read, the run's grey ticks have a key, hyphenated repo names and orphan words no longer break.
 
+## v7: lines against a famous codebase, and machine time (2026-11-04)
+
+Feedback on v6: "I like lines added vs removed. Maybe compare lines total to some famous software
+number of lines. Also action run time total minutes would be cool."
+
+- **lines.** Question: how much code moved, and how big is that? Hero: `+added` in `--add`, big,
+  beside `-removed` in `--del`. Chart: three bars on one scale, added, removed, and the chosen
+  codebase hatched in taupe so it never reads as the person's own. Line: "Added: about one and a
+  half times the Quake III Arena source." The unit says what is counted: merged pull requests.
+- **actions.** Question: how long did the machines work for you? Hero: total minutes in signal.
+  Chart: twelve monthly columns (a cadence is counts on a time axis), the peak month lit and
+  labelled. Line: the total as days or hours, and the peak month's share when it is half or more.
+- **Collection fixes found on the way.** PRs are fetched a month at a time (one search caps at
+  1,000 results; byronxlg's 1,345 PRs had been cut to 1,000, so lines were 474k, not 541k).
+  GraphQL calls retry on a 5xx.
+- **Length.** Both beats sit in chapters (lines in "The work", actions in "What shipped"); the cap
+  is 78 s of estimated beats, which drops the run before them for a busy year (about 79 s with
+  chapter cards).
+
+Reference codebases (`build.py:CODEBASES`). All lines counted, blank and comment lines too, as a
+PR's additions are. Measured on 2026-11-04 with `wc -l` over a shallow clone unless noted:
+
+| Codebase | Lines | Source |
+|---|---|---|
+| git's first commit | 1,244 | git/git `e83c516` "Initial revision of git", all 11 files |
+| Wolfenstein 3D | 42,178 | github.com/id-Software/wolf3d `0516778`, .c .h .asm |
+| Doom | 59,110 | github.com/id-Software/DOOM `a77dfb9` (linuxdoom-1.10, sndserv, ipx, sersrc), .c .h |
+| Apollo 11 guidance | 130,186 | github.com/chrislgarry/Apollo-11 `e7576d5`, Comanche055 + Luminary099 .agc |
+| SQLite | 222,348 | github.com/sqlite/sqlite `38b4005`, src/ .c .h |
+| Quake | 237,508 | github.com/id-Software/Quake `bf4ac42`, WinQuake + QuakeWorld .c .h .s .asm |
+| Quake III Arena | 332,692 | github.com/id-Software/Quake-III-Arena `dbe4ddb`, code/ .c .h .s .asm .cpp |
+| Linux kernel | about 40,000,000 | Phoronix, "The Linux Kernel Tree About To Hit 40 Million Lines" (April 2026), all lines including blanks and comments; not measured here |
+
 ## Archetype
 
 Adjective from rhythm, noun from output, each with a one-line reason shown under the name:

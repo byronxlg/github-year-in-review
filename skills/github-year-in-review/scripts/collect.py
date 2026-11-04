@@ -15,17 +15,23 @@ from __future__ import annotations
 
 import argparse
 import collections
+import concurrent.futures
 import datetime as dt
 import json
 import os
 import re
 import subprocess
 import sys
+import threading
+import time
 from zoneinfo import ZoneInfo
 
 HISTORY_REPOS = 6  # repos whose commit history is sampled for time-of-day and messages
 HISTORY_PAGES = 5  # 100 commits per page, per repo
 STAR_REPOS = 12  # owned repos whose stargazers are scanned for stars gained this year
+RUN_PAGES_PER_REPO = 100  # Actions: 100 runs a page, so up to 10,000 runs a repo are timed
+RUN_PAGE_BUDGET = 600  # Actions: pages across all repos (one REST call each); past it, estimated
+RUN_MAX_MINUTES = 6 * 60  # a run longer than a hosted job's 6 h limit is clipped (stale updated_at)
 
 
 def gh_graphql(query: str, **variables) -> dict:
@@ -35,7 +41,11 @@ def gh_graphql(query: str, **variables) -> dict:
             continue
         flag = "-F" if isinstance(value, (int, bool)) else "-f"
         args += [flag, f"{key}={json.dumps(value) if isinstance(value, bool) else value}"]
-    proc = subprocess.run(args, capture_output=True, text=True)
+    for attempt in range(3):  # GitHub answers a heavy search with a 502 now and then; retry
+        proc = subprocess.run(args, capture_output=True, text=True)
+        if proc.returncode == 0 or not re.search(r"HTTP 5\d\d|timeout", proc.stderr):
+            break
+        time.sleep(3 * (attempt + 1))
     if proc.returncode != 0:
         raise SystemExit(f"gh api graphql failed: {proc.stderr.strip()[:400]}")
     payload = json.loads(proc.stdout)
@@ -84,7 +94,7 @@ query($login:String!,$after:String){
   user(login:$login){
     repositories(first:100,after:$after,ownerAffiliations:OWNER,orderBy:{field:CREATED_AT,direction:DESC}){
       pageInfo{hasNextPage endCursor}
-      nodes{nameWithOwner name createdAt isPrivate isFork stargazerCount forkCount description
+      nodes{nameWithOwner name createdAt pushedAt isPrivate isFork stargazerCount forkCount description
         primaryLanguage{name color}
         releases(first:50,orderBy:{field:CREATED_AT,direction:DESC}){nodes{createdAt tagName isDraft}}}
     }
@@ -271,6 +281,139 @@ def agent_sample(user: str, start: dt.date, end: dt.date, exclude: list[str], pe
     }
 
 
+def iso_time(x: str | None) -> dt.datetime | None:
+    return dt.datetime.fromisoformat(x.replace("Z", "+00:00")) if x else None
+
+
+def run_minutes(run: dict) -> float:
+    """Wall-clock minutes of one completed workflow run: run_started_at (the latest attempt)
+    to updated_at (when it finished), clipped to [0, RUN_MAX_MINUTES]. Not billable minutes:
+    parallel jobs count once, so this is how long you waited, not what a bill would say."""
+    if run.get("status") != "completed":
+        return 0.0
+    a, b = iso_time(run.get("run_started_at") or run.get("created_at")), iso_time(run.get("updated_at"))
+    if not a or not b:
+        return 0.0
+    return min(RUN_MAX_MINUTES, max(0.0, (b - a).total_seconds() / 60))
+
+
+def summarise_runs(runs: list[dict], year: int, zone: ZoneInfo) -> dict:
+    """Minutes, run count and minutes by month for the runs that started in `year`."""
+    by_month = [0.0] * 12
+    count = 0
+    for r in runs:
+        when = iso_time(r.get("run_started_at") or r.get("created_at"))
+        if not when:
+            continue
+        when = when.astimezone(zone)
+        if when.year != year:
+            continue
+        count += 1
+        by_month[when.month - 1] += run_minutes(r)
+    return {"runs": count, "minutes": sum(by_month), "by_month": by_month}
+
+
+def repo_runs(full: str, start: dt.datetime, pages: int, budget: list | None = None,
+              lock: threading.Lock | None = None) -> tuple[list[dict], bool]:
+    """Workflow runs of one repo, newest first, back to `start`. Unfiltered listing (a `created`
+    filter caps at 1,000 results). Stops at `pages`, or when the shared page `budget` ([n]) is
+    spent; returns (runs, capped)."""
+    runs = []
+    cutoff = start.isoformat().replace("+00:00", "Z")
+    for page in range(1, pages + 1):
+        if budget is not None:
+            with lock or threading.Lock():
+                if budget[0] <= 0:
+                    return runs, True
+                budget[0] -= 1
+        data = gh_rest(f"repos/{full}/actions/runs", per_page=100, page=page)
+        batch = data.get("workflow_runs") or []
+        runs += [{k: r.get(k) for k in ("status", "created_at", "run_started_at", "updated_at")} for r in batch]
+        if len(batch) < 100 or (batch[-1].get("created_at") or "") < cutoff:
+            return runs, False
+    return runs, True
+
+
+def actions_time(owned: list[dict], user: str, year: int, start: dt.datetime, zone: ZoneInfo,
+                 include_private: bool, budget: int = RUN_PAGE_BUDGET, workers: int = 6) -> dict | None:
+    """Total GitHub Actions run time on the user's own (non-fork) repos pushed this year.
+
+    One REST page per 100 runs, repos read in parallel. A repo past RUN_PAGES_PER_REPO pages,
+    or cut off when the page budget is spent, has the rest of its year estimated from its run
+    count times the mean minutes per run seen, and is listed in `estimated_repos`.
+    None when no repo could be read."""
+    year_s = str(year)
+    repos = [r for r in owned if not r.get("isFork") and (r.get("pushedAt") or r.get("createdAt") or "")[:4] >= year_s]
+    left, lock = [budget], threading.Lock()
+
+    errors: list[str] = []
+
+    def one(r):
+        for attempt in range(2):  # one retry: a secondary rate limit clears in seconds
+            try:
+                return r, repo_runs(r["nameWithOwner"], start, RUN_PAGES_PER_REPO, left, lock)
+            except RuntimeError as exc:  # Actions disabled, no access, or an outage
+                if attempt:
+                    errors.append(str(exc)[:120])
+                else:
+                    time.sleep(5)
+        return r, None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(one, repos))
+    by_month = [0.0] * 12
+    runs = read = 0
+    minutes = 0.0
+    by_repo, estimated, pending, timed = collections.Counter(), [], [], {}
+    for r, got in results:
+        if got is None:
+            continue
+        got_runs, capped = got
+        read += 1
+        s = summarise_runs(got_runs, year, zone)
+        if capped:
+            pending.append(r)
+        runs += s["runs"]
+        minutes += s["minutes"]
+        by_month = [a + b for a, b in zip(by_month, s["by_month"])]
+        timed[r["nameWithOwner"]] = s["runs"]
+        by_repo[public_name(r, include_private)] += s["minutes"]
+    mean = minutes / runs if runs else 0.0
+    est_minutes = 0.0
+    for r in pending:  # count the runs we did not time; estimate their minutes from the mean
+        try:
+            total = gh_rest(f"repos/{r['nameWithOwner']}/actions/runs", per_page=1,
+                            created=f"{year}-01-01..{year}-12-31").get("total_count", 0)
+        except RuntimeError:
+            continue
+        extra = max(0, total - timed.get(r["nameWithOwner"], 0))
+        if not extra:
+            continue
+        est_minutes += extra * mean
+        runs += extra
+        estimated.append([public_name(r, include_private), extra])
+    print(f"actions: {read} of {len(repos)} repos read, {len(pending)} past the page cap, "
+          f"{len(errors)} unreadable {errors[:1]}", file=sys.stderr)
+    if not read:
+        return None
+    total_minutes = minutes + est_minutes
+    return {
+        "method": (f"REST actions/runs on owned non-fork repos pushed this year, every run listed (up to {budget} pages, "
+                   f"{RUN_PAGES_PER_REPO} a repo; the rest estimated from the mean); "
+                   "minutes = run_started_at to updated_at of completed runs (wall clock, parallel "
+                   f"jobs once), clipped at {RUN_MAX_MINUTES} min a run; not billable minutes"),
+        "minutes": round(total_minutes),
+        "minutes_measured": round(minutes),
+        "runs": runs,
+        "repos": sum(1 for k in timed.values() if k),
+        "by_month": [round(x) for x in by_month],  # measured runs only, by local start month
+        "by_repo": [[name, round(m)] for name, m in by_repo.most_common(6) if m >= 1],
+        "estimated_repos": estimated,
+        "estimated": bool(estimated),
+        "unreadable_repos": len(errors),
+    }
+
+
 def public_name(repo: dict, include_private: bool) -> str:
     if repo.get("isPrivate") and not include_private:
         return "a private repo"
@@ -392,14 +535,18 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
     ]
 
     # Pull requests authored this year.
+    # Search returns at most 1,000 results a query, so the year is fetched a month at a time;
+    # a month past 1,000 PRs is still capped, and `sampled` < `opened` says so.
     q = f"author:{user} type:pr created:{start.date()}..{end.date()}"
-    prs, after = [], None
-    for _ in range(10):
-        page = gh_graphql(Q_PRS, q=q, after=after)["search"]
-        prs += [n for n in page["nodes"] if n]
-        if not page["pageInfo"]["hasNextPage"]:
-            break
-        after = page["pageInfo"]["endCursor"]
+    prs = []
+    for a, b in month_ranges(start.date(), end.date()):
+        after = None
+        for _ in range(10):
+            page = gh_graphql(Q_PRS, q=f"author:{user} type:pr created:{a}..{b}", after=after)["search"]
+            prs += [n for n in page["nodes"] if n]
+            if not page["pageInfo"]["hasNextPage"]:
+                break
+            after = page["pageInfo"]["endCursor"]
     raw["prs"] = prs
     pr_opened = search_count(q)
     pr_merged = search_count(q + " is:merged")
@@ -540,6 +687,9 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
                              "dates": sorted(x["createdAt"][:10] for x in tags) if named else []})
     releases.sort(key=lambda x: -x["count"])
 
+    # GitHub Actions time on the user's own repos (optional beat; None when unreadable).
+    actions = actions_time(owned, user, year, start, zone, include_private)
+
     for r in repos:
         for k in [k for k in r if k.startswith("_")]:
             r.pop(k)
@@ -648,6 +798,7 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
             "total_owned": sum(r["stargazerCount"] for r in owned if not r["isPrivate"]),
         },
         "agents": agents,
+        "actions": actions,
         "releases": {"total": sum(x["count"] for x in releases), "repos": releases[:6]},
         "commit_verbs": verbs.most_common(8),
         "first_commit": first_commit,

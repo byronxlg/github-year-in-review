@@ -162,7 +162,7 @@ class Story(unittest.TestCase):
         self.assertIn("releases", ids)
 
     def test_fit_length_caps_the_film(self):
-        beats = [{"id": i} for i in ("hook", "shape", "run", "clock", "work", "agents", "ship", "diff",
+        beats = [{"id": i} for i in ("hook", "shape", "run", "clock", "work", "agents", "ship", "lines", "actions", "diff",
                                      "releases", "started", "oss", "surprise", "identity", "close")]
         build.fit_length(beats)
         self.assertLessEqual(sum(b["duration"] for b in beats), build.MAX_TOTAL)
@@ -324,6 +324,112 @@ class ChartsTest(unittest.TestCase):
             self.assertIn('class="rate', html)
         self.assertIn('class="rcols"', html)
         self.assertNotIn('class="trailers"', html)
+
+
+class LinesAndActionsTest(unittest.TestCase):
+    """v7: the year's lines against a famous codebase, and GitHub Actions time."""
+
+    def test_codebase_match_picks_largest_within_reach(self):
+        m = build.codebase_match(540_853)
+        self.assertEqual((m["short"], m["ratio"]), ("Quake III Arena", 1.63))
+        self.assertEqual(build.codebase_match(60_000)["short"], "Doom")
+        self.assertEqual(build.codebase_match(50_000)["short"], "Doom")  # 59k is within 1.25x
+        self.assertEqual(build.codebase_match(1_000)["short"], "git's first commit")
+        self.assertIsNone(build.codebase_match(900))
+        self.assertEqual(build.codebase_match(60_000_000)["short"], "Linux kernel")
+        sizes = [c[2] for c in build.CODEBASES]
+        self.assertEqual(sizes, sorted(sizes))
+        self.assertTrue(all(c[3] for c in build.CODEBASES))  # every figure has a source
+
+    def test_times_phrase(self):
+        self.assertEqual(build.times_phrase(0.9), "about the size of")
+        self.assertEqual(build.times_phrase(1.63), "about one and a half times")
+        self.assertEqual(build.times_phrase(2.2), "about twice")
+        self.assertEqual(build.times_phrase(3.4), "about 3 times")
+        self.assertEqual(build.compact(540_853), "541k")
+        self.assertEqual(build.compact(1_234_567), "1.2M")
+        self.assertEqual(build.duration_words(33_843), "about 24 days")
+        self.assertEqual(build.duration_words(300), "about 5 hours")
+
+    def test_run_minutes(self):
+        run = {"status": "completed", "run_started_at": "2026-10-01T10:00:00Z", "updated_at": "2026-10-01T10:04:30Z"}
+        self.assertEqual(collect.run_minutes(run), 4.5)
+        self.assertEqual(collect.run_minutes(dict(run, status="in_progress")), 0.0)
+        self.assertEqual(collect.run_minutes(dict(run, updated_at="2026-10-03T10:00:00Z")), collect.RUN_MAX_MINUTES)
+        self.assertEqual(collect.run_minutes(dict(run, updated_at="2026-10-01T09:00:00Z")), 0.0)
+
+    def test_summarise_runs_keeps_the_year_by_local_month(self):
+        from zoneinfo import ZoneInfo
+        runs = [{"status": "completed", "run_started_at": "2026-03-31T20:00:00Z", "updated_at": "2026-03-31T20:10:00Z"},
+                {"status": "completed", "run_started_at": "2026-05-02T00:00:00Z", "updated_at": "2026-05-02T00:02:00Z"},
+                {"status": "completed", "run_started_at": "2025-12-31T01:00:00Z", "updated_at": "2025-12-31T02:00:00Z"}]
+        s = collect.summarise_runs(runs, 2026, ZoneInfo("Pacific/Auckland"))
+        self.assertEqual(s["runs"], 2)
+        self.assertEqual(s["minutes"], 12)
+        self.assertEqual(s["by_month"][3], 10)  # 31 Mar 20:00 UTC is April in Auckland
+        self.assertEqual(s["by_month"][4], 2)
+
+    def test_actions_time_pages_until_the_year_starts_and_estimates_past_the_cap(self):
+        def run(day):
+            return {"status": "completed", "created_at": f"{day}T00:00:00Z", "run_started_at": f"{day}T00:00:00Z",
+                    "updated_at": f"{day}T00:05:00Z"}
+        calls = []
+
+        def fake(path, **params):
+            calls.append((path, params))
+            if "created" in params:
+                return {"total_count": 250}
+            if path.startswith("repos/me/busy"):
+                return {"workflow_runs": [run("2026-06-01")] * 100}
+            if path.startswith("repos/me/fail"):
+                raise RuntimeError("HTTP 404")
+            page = params["page"]
+            return {"workflow_runs": [run("2026-06-01")] * 100 if page == 1 else [run("2025-12-01")] * 100}
+        owned = [{"nameWithOwner": "me/app", "isPrivate": False, "isFork": False, "pushedAt": "2026-06-01"},
+                 {"nameWithOwner": "me/busy", "isPrivate": True, "isFork": False, "pushedAt": "2026-06-01"},
+                 {"nameWithOwner": "me/fail", "isPrivate": False, "isFork": False, "pushedAt": "2026-06-01"},
+                 {"nameWithOwner": "me/fork", "isPrivate": False, "isFork": True, "pushedAt": "2026-06-01"},
+                 {"nameWithOwner": "me/old", "isPrivate": False, "isFork": False, "pushedAt": "2024-01-01"}]
+        from unittest import mock
+        from zoneinfo import ZoneInfo
+        start = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+        with mock.patch.object(collect, "gh_rest", fake), mock.patch.object(collect, "RUN_PAGES_PER_REPO", 2), \
+                mock.patch.object(collect.time, "sleep", lambda s: None):
+            a = collect.actions_time(owned, "me", 2026, start, ZoneInfo("UTC"), False)
+        self.assertEqual(a["minutes_measured"], 300 * 5)  # app: 100 runs; busy: 200 runs before the cap
+        self.assertEqual(a["runs"], 100 + 250)  # busy's 250 runs this year, 50 of them estimated
+        self.assertEqual(a["minutes"], 300 * 5 + 50 * 5)
+        self.assertTrue(a["estimated"])
+        self.assertEqual(a["estimated_repos"], [["a private repo", 50]])
+        self.assertEqual(a["unreadable_repos"], 1)
+        self.assertFalse(any("fork" in p or "old" in p for p, _ in calls))
+        self.assertEqual(a["by_month"][5], 1500)
+        with mock.patch.object(collect, "gh_rest", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x"))), \
+                mock.patch.object(collect.time, "sleep", lambda s: None):
+            self.assertIsNone(collect.actions_time(owned[:1], "me", 2026, start, ZoneInfo("UTC"), False))
+
+    def test_lines_and_actions_beats(self):
+        pr = dict(year_fixture()["pull_requests"], opened=40, merged=30, sampled=40,
+                  lines_added=540_853, lines_removed=166_863)
+        act = {"minutes": 33_843, "runs": 10_716, "by_month": [12, 1, 237, 0, 520, 324, 569, 1120, 1390, 28422, 1249, 0],
+               "estimated": False}
+        d = year_fixture(pull_requests=pr, actions=act)
+        story = build.make_story(d, build.CTA)
+        beats = {b["id"]: b for b in story["beats"]}
+        self.assertEqual(beats["lines"]["sub"], "Added: about one and a half times the Quake III Arena source.")
+        self.assertIn("merged pull requests", beats["lines"]["unit"])
+        self.assertEqual(beats["actions"]["number"], 33_843)
+        self.assertEqual(beats["actions"]["sub"], "About 24 days of machine time, 84% of it in October.")
+        with tempfile.TemporaryDirectory() as tmp:
+            html = build.build(story, Path(tmp), None, None).read_text()
+        self.assertEqual(html.count('class="lrow'), 3)
+        self.assertEqual(html.count('class="mc'), 12)
+        # thin or missing data: no beat
+        ids = [b["id"] for b in build.make_story(year_fixture(), build.CTA)["beats"]]
+        self.assertNotIn("lines", ids)
+        self.assertNotIn("actions", ids)
+        ids = [b["id"] for b in build.make_story(year_fixture(actions=None), build.CTA)["beats"]]
+        self.assertNotIn("actions", ids)
 
 
 class BeatGridTest(unittest.TestCase):

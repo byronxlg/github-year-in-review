@@ -32,7 +32,7 @@ MONTHS = ["January", "February", "March", "April", "May", "June", "July", "Augus
           "October", "November", "December"]
 # Rough length per beat, used only to decide which beats fit; real timing comes from beat_timing().
 EST_DURATION = {"hook": 5.6, "shape": 7.6, "run": 6.4, "clock": 7.2, "work": 7.6, "agents": 7.8,
-                "ship": 6.9, "diff": 6.9, "releases": 7.2, "started": 7.4, "oss": 7.0, "surprise": 6.4,
+                "ship": 6.9, "diff": 6.9, "lines": 7.0, "actions": 7.0, "releases": 7.2, "started": 7.4, "oss": 7.0, "surprise": 6.4,
                 "identity": 6.0, "close": 6.8}
 # Pacing (seconds). One thing moves at a time; every beat holds still for HOLD before it leaves.
 LEAD, GAP, EXIT = 0.3, 0.35, 0.4
@@ -44,13 +44,15 @@ DIRECTION = "b"  # juror pick 2026-11-03; see docs/design.md v3
 # Direction B: chapter cards (title, command, beats in the chapter), inserted before the chapter's first beat.
 CHAPTERS = [
     ("The rhythm", "git log --since={year}-01-01 --author={user}", ("shape", "run", "clock")),
-    ("The work", "git shortlog -sn --since={year}-01-01", ("work", "agents", "ship", "diff")),
-    ("What shipped", "git tag --sort=-creatordate", ("releases", "started", "oss", "surprise")),
+    ("The work", "git shortlog -sn --since={year}-01-01", ("work", "agents", "ship", "lines", "diff")),
+    ("What shipped", "git tag --sort=-creatordate", ("releases", "actions", "started", "oss", "surprise")),
 ]
-MAX_TOTAL = 70.0  # LinkedIn: about a minute; calm pacing over more beats
+MAX_TOTAL = 78.0  # LinkedIn: under a minute and a half; calm pacing over more beats (estimates run long)
 # Beats dropped first when the film runs long; the last ones go last. hook, identity and close
-# are never dropped. The optional beats that flatter (agents, diff, releases) outlast rhythm detail.
-DROP_ORDER = ["surprise", "oss", "diff", "started", "run", "clock", "releases", "ship", "agents", "work", "shape"]
+# are never dropped. The optional beats that flatter (agents, lines, releases) outlast rhythm detail;
+# the biggest-change beat goes before the year's lines, which say more.
+DROP_ORDER = ["surprise", "oss", "diff", "started", "run", "actions", "clock", "releases", "lines", "ship",
+              "agents", "work", "shape"]
 # A real command (or pipeline) that would answer each beat's question for a single repo. Kept in
 # story.json; only the hook's is drawn (v3: one prompt, static, so it never moves with a stat).
 COMMANDS = {
@@ -62,6 +64,8 @@ COMMANDS = {
     "agents": "git log --format='%(trailers:key=Co-authored-by)'",
     "ship": "gh pr list --author @me --state merged",
     "diff": "git diff --shortstat",
+    "lines": "git log --shortstat --author={user} --since={year}-01-01",
+    "actions": "gh run list --json startedAt,updatedAt",
     "releases": "git tag --sort=-creatordate",
     "started": "gh repo list --source",
     "oss": "gh search prs --author @me --merged",
@@ -165,6 +169,65 @@ def burst_line(rel: dict) -> str:
     span = (max(d for d in dates if 0 <= (d - at).days < 3) - at).days + 1
     when = f"in {span} days in {MONTHS[at.month - 1]}" if span > 1 else f"on {short_date(at.isoformat())}"
     return f"{best} of them {when}."
+
+
+# Famous codebases to size the year's added lines against. Every figure counts all lines (blank
+# and comment lines too), like a PR's additions do. Measured with `wc -l` on a shallow clone
+# unless noted; sources and commits in docs/design.md (v7). Ordered small to large.
+CODEBASES = [
+    # (phrase, short label, lines, source)
+    ("git's first commit", "git's first commit", 1_244, "git/git e83c516, all 11 files"),
+    ("the Wolfenstein 3D source", "Wolfenstein 3D", 42_178, "id-Software/wolf3d 0516778, .c .h .asm"),
+    ("the original Doom source", "Doom", 59_110, "id-Software/DOOM a77dfb9, .c .h"),
+    ("the Apollo 11 guidance code", "Apollo 11 guidance", 130_186,
+     "chrislgarry/Apollo-11 e7576d5, Comanche055 + Luminary099 .agc"),
+    ("SQLite's source", "SQLite", 222_348, "sqlite/sqlite 38b4005, src/*.c *.h"),
+    ("the Quake source", "Quake", 237_508, "id-Software/Quake bf4ac42, WinQuake + QuakeWorld .c .h .s"),
+    ("the Quake III Arena source", "Quake III Arena", 332_692,
+     "id-Software/Quake-III-Arena dbe4ddb, code/ .c .h .s .asm .cpp"),
+    ("the Linux kernel", "Linux kernel", 40_000_000,
+     "about 40M lines with blanks and comments, Phoronix, April 2026"),
+]
+
+
+def codebase_match(lines: int) -> dict | None:
+    """The famous codebase to compare `lines` with: the largest one no bigger than 1.25x the
+    total, so the phrase is "about the size of" or a multiple of at least one. None when the
+    total is smaller than all of them."""
+    fits = [c for c in CODEBASES if c[2] <= lines * 1.25]
+    if not fits or lines <= 0:
+        return None
+    phrase, short, size, source = max(fits, key=lambda c: c[2])
+    return {"name": phrase, "short": short, "lines": size, "source": source, "ratio": round(lines / size, 2)}
+
+
+def times_phrase(ratio: float) -> str:
+    """'about the size of', 'about one and a half times', 'about twice', 'about 3 times'."""
+    if ratio < 1.25:
+        return "about the size of"
+    if ratio < 1.75:
+        return "about one and a half times"
+    if ratio < 2.5:
+        return "about twice"
+    return f"about {n(ratio)} times"
+
+
+def compact(x: int | float) -> str:
+    """640123 -> '640k', 1234567 -> '1.2M', 942 -> '942'."""
+    if x >= 999_500:
+        return f"{x / 1e6:.1f}M".replace(".0M", "M")
+    if x >= 1000:
+        return f"{round(x / 1000)}k"
+    return n(x)
+
+
+def duration_words(minutes: float) -> str:
+    """Minutes as a human span: 'about 23 days', 'about 14 hours', '45 minutes'."""
+    if minutes >= 2 * 1440:
+        return f"about {n(minutes / 1440)} days"
+    if minutes >= 120:
+        return f"about {n(minutes / 60)} hours"
+    return plural(round(minutes), "minute")
 
 
 def make_story(d: dict, cta: str) -> dict:
@@ -300,6 +363,37 @@ def make_story(d: dict, cta: str) -> dict:
             "at_least": pr.get("sampled", 0) < pr.get("merged", 0),
         })
 
+    # optional: the year's lines, added against removed, sized against a famous codebase
+    added, removed = pr.get("lines_added", 0), pr.get("lines_removed", 0)
+    if added >= 1000 and pr.get("merged", 0) >= 5:
+        ref = codebase_match(added)
+        partial = pr.get("sampled", 0) < pr.get("opened", 0)
+        beats.append({
+            "id": "lines", "label": "Lines changed",
+            "added": added, "removed": removed, "net": added - removed,
+            "unit": "lines in merged pull requests" + (", at least" if partial else ""),
+            "ref": ref,
+            "sub": f"Added: {times_phrase(ref['ratio'])} {ref['name']}." if ref else f"Net: {'+' if added >= removed else '-'}{n(abs(added - removed))} lines.",
+        })
+
+    # optional: GitHub Actions time on the user's own repos
+    act = d.get("actions") or {}
+    if act.get("minutes", 0) >= 60 and act.get("runs", 0) >= 20:
+        span = duration_words(act["minutes"])
+        bm = act.get("by_month") or [0] * 12
+        peak = max(range(12), key=lambda m: bm[m])
+        share = bm[peak] / (sum(bm) or 1)
+        tail = (f", {pct(share)} of it in {MONTHS[peak]}." if share >= 0.5
+                else f", over {plural(act['runs'], 'run')}.")
+        beats.append({
+            "id": "actions", "label": "Machine time",
+            "number": act["minutes"], "unit": "minutes of Actions runs on your repos",
+            "by_month": act.get("by_month") or [0] * 12,
+            "runs": act["runs"],
+            "sub": (f"{span[0].upper()}{span[1:]} of machine time{tail}"
+                    + (" Partly estimated." if act.get("estimated") else "")),
+        })
+
     # optional: releases shipped
     rel = d.get("releases") or {}
     if rel.get("total", 0) >= 3:
@@ -369,6 +463,7 @@ def make_story(d: dict, cta: str) -> dict:
     for b in beats:
         b["cmd"] = COMMANDS[b["id"]].format(user=u["login"], year=p["year"])
     return {"user": u["login"], "year": p["year"], "year_label": year_label, "calendar": d["calendar"],
+            "period_to": p.get("to"),
             "beats": beats}
 
 
@@ -568,6 +663,36 @@ def release_rug(rows: list[dict], year: int, P2: str, per_row: int = 3, sq: int 
             f'<div class="legend rkeys">{keys}</div></div>')
 
 
+def line_bars(adds: int, dels: int, ref: dict | None, P2: str) -> str:
+    """Added, removed and the reference codebase as bars on one scale: the comparison is drawn,
+    not only said. The reference bar is hatched taupe so it never reads as the person's own."""
+    rows = [("added", adds, "var(--add)", ""), ("removed", dels, "var(--del)", "")]
+    if ref:
+        rows.append((ref["short"], ref["lines"], "#8f7b6c", " ref"))
+    mx = max(v for _, v, _, _ in rows) or 1
+    out = "".join(
+        f'<div class="lrow{cls}"><div class="ll"><b>{E(lab)}</b><span>{compact(v)}</span></div>'
+        f'<div class="ltrack"><i class="bar rbar" style="width:{max(0.6, 100 * v / mx):.1f}%;background:{col}"></i></div></div>'
+        for lab, v, col, cls in rows)
+    return f'<div class="lbars rise" {P2}>{out}</div>'
+
+
+def month_bars(by_month: list[float], story: dict, P2: str) -> str:
+    """Twelve monthly columns, the peak month in signal and labelled; months after the period are
+    an empty baseline."""
+    mx = max(by_month) or 1
+    peak = max(range(12), key=lambda m: by_month[m])
+    last = int(story.get("period_to", f"{story['year']}-12-31")[5:7]) if story.get("period_to") else 12
+    cols = []
+    for m in range(12):
+        v = by_month[m]
+        lab = f"<span>{compact(v)}</span>" if m == peak else ""
+        h = 0 if m >= last and not v else max(1.5, 100 * v / mx)
+        cols.append(f'<div class="mc{" peak" if m == peak else ""}"><div class="mt"><i class="bar cbar" style="height:{h:.1f}%">{lab}</i></div>'
+                    f'<em>{MONTHS[m][:1]}</em></div>')
+    return f'<div class="mbars rise" {P2}>{"".join(cols)}</div>'
+
+
 
 def scene_html(b: dict, story: dict, total: int, direction: str = "a", thumb: bool = False) -> str:
     """One beat as HTML. Motion is marked, not timed: data-p="1" is the hero (lands first),
@@ -630,6 +755,24 @@ def scene_html(b: dict, story: dict, total: int, direction: str = "a", thumb: bo
         <div class="title">{E(b['title'])}</div>
         <div class="dnum"><b class="add big count" {P1} data-to="{adds}" data-from="0" data-sign="+">+{n(adds)}</b><b class="del big rise" {P2}>-{n(dels)}</b></div>
         <div class="dstat rise" {P2}>{stat}</div>
+      </div>"""
+    elif sid == "lines":
+        adds, dels = b["added"], b["removed"]
+        body = f"""
+      <div class="stack lines">
+        <div class="dnum"><b class="add big count" {P1} data-to="{adds}" data-from="0" data-sign="+" style="font-size:{big_size("+" + n(adds), 230, 560)}px">+{n(adds)}</b><b class="del big rise" {P1} style="font-size:{big_size("-" + n(dels), 120, 340)}px">-{n(dels)}</b></div>
+        <div class="unit rise" {P1}>{E(b['unit'])}</div>
+        {line_bars(adds, dels, b.get("ref"), P2)}
+        {f'<div class="sub ink rise" {P2}>{E(b["sub"])}</div>' if b.get("sub") else ''}
+      </div>"""
+    elif sid == "actions":
+        num = n(b["number"])
+        body = f"""
+      <div class="stack actions">
+        <div class="big signal count" {P1} data-to="{b['number']}" data-from="0" style="font-size:{big_size(num, 340)}px">{num}</div>
+        <div class="unit rise" {P1}>{E(b['unit'])}</div>
+        {month_bars(b["by_month"], story, P2)}
+        <div class="sub ink rise" {P2}>{E(b['sub'])}</div>
       </div>"""
     elif sid in ("run", "ship", "surprise", "started", "releases", "oss"):
         num = n(b["number"])
