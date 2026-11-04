@@ -161,7 +161,9 @@ Tell the user where the video, thumbnail, poster and share copy are, and one lin
 - **Identity over inventory.** The film ends on who they were (archetype), not on a total.
 - **Honest.** Automation is named, private names are hidden, partial years say "so far".
 - **Readable muted.** Every beat makes sense with the sound off.
-- **Git, not GitHub.** Typed prompts, hash labels, diff hunks and trailers; no logos, no
+- **Nothing numbered.** No slide counter, hash label, part numbers or progress ticks; a beat
+  carries its section name only.
+- **Git, not GitHub.** Typed prompts, diff hunks and trailers; no logos, no
   GitHub greens or UI chrome.
 - **Original look.** The ledger identity in [references/story.md](references/story.md); do not
   restyle it into Wrapped or Unwrapped.

@@ -7,9 +7,9 @@ what the agent needs at run time.
 
 Warm carbon ground `#14120F`, paper ink `#F3EEE4`, muted `#A39B8E`, one signal colour `#FF5B24`,
 heat ramp `#6A3A22 #A3431F #D9501F #FF5B24`. Bricolage Grotesque (width 75, weight 800) for
-numbers and names, JetBrains Mono for labels. A footer rail on every frame: handle, year, and
-52 week ticks that fill as the film plays. Each beat opens with a typed `~ $` command and a
-commit-hash label; lists are diff hunks (`+` `#8FD694`, `-` `#F2777A`). The contribution year (12 month rows x 31 days) is
+numbers and names, JetBrains Mono for labels. A footer rail on every frame: handle and year,
+nothing else. Each beat opens with a typed `~ $` command and the section name, never a number
+(no slide counter, hash label, part numbers or progress ticks); lists are diff hunks (`+` `#8FD694`, `-` `#F2777A`). The contribution year (12 month rows x 31 days) is
 the recurring object: drawn in beat 2, returned as the closing image.
 
 ## Beats

@@ -3,6 +3,7 @@
 import datetime as dt
 import json
 import sys
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -221,6 +222,17 @@ class Story(unittest.TestCase):
             self.assertNotIn("__", thumb.replace("window.__timelines", ""))
             self.assertIn("@quiet", thumb)
             self.assertTrue((out / "thumbnail" / "assets" / "fonts" / "JetBrainsMono.ttf").exists())
+
+    def test_film_has_no_page_or_section_numbers(self):
+        """No slide counter (02/10), hash label, "part N of M" or progress ticks in either direction."""
+        for direction in ("a", "b"):
+            with tempfile.TemporaryDirectory() as tmp:
+                story = build.make_story(year_fixture(), build.CTA)
+                html = build.build(story, Path(tmp), None, None, direction=direction).read_text()
+                self.assertIsNone(re.search(r"\b\d{2}/\d{2}\b", html))
+                for mark in ('class="idx"', 'class="ct"', 'id="ticks"', "part 1 of", "__BEATS__"):
+                    self.assertNotIn(mark, html)
+                self.assertIn("The shape of the year</span>", html)
 
     def test_thumbnail_is_the_identity(self):
         """Option A: kicker, the archetype name with its last word in signal, the stats."""

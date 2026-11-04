@@ -104,13 +104,6 @@
         color: var(--muted);
         font-weight: 500;
       }
-      .label .idx {
-        color: var(--signal);
-        text-transform: none;
-      }
-      .label .ct {
-        color: var(--ink);
-      }
       .stack {
         flex: 1;
         display: flex;
@@ -512,13 +505,13 @@
         color: var(--signal);
         margin-bottom: 8px;
       }
-      /* footer rail: handle, year, and the year filling in as the film plays */
+      /* footer rail: handle and year, nothing numbered */
       #rail {
         position: absolute;
         left: 84px;
         right: 84px;
         bottom: 64px;
-        height: 70px;
+        height: auto;
         display: flex;
         flex-direction: column;
         gap: 16px;
@@ -534,20 +527,6 @@
       #rail .meta b {
         color: var(--ink);
         font-weight: 600;
-      }
-      #ticks {
-        display: flex;
-        gap: 4px;
-        height: 14px;
-      }
-      #ticks i {
-        display: block;
-        flex: 1;
-        background: var(--rule);
-        border-radius: 2px;
-      }
-      #ticks i.on {
-        background: var(--signal);
       }
       /* thumbnail: the close as a still, no label, no rail, centred in the full frame */
       .thumb .inner {
@@ -594,7 +573,6 @@
       <!--rail-->
       <div id="rail" class="clip" data-start="0" data-duration="__DURATION__" data-track-index="2">
         <div class="meta"><b>__HANDLE__</b><span>__YEAR__</span></div>
-        <div id="ticks" data-beats="__BEATS__"></div>
       </div>
       <!--/rail-->
     <!--__AUDIO__-->
@@ -607,18 +585,11 @@
       const tl = gsap.timeline({ paused: true });
       const fmt = (v) => Math.round(v).toLocaleString("en-US");
 
-      // Footer rail: one segment per beat, lit at the cut (never moving during a beat).
-      const ticks = document.getElementById("ticks");  // absent in the thumbnail
-      const nBeats = ticks ? Number(ticks.dataset.beats) : 0;
-      for (let i = 0; i < nBeats; i++) ticks.appendChild(document.createElement("i"));
-      const tickEls = ticks ? [...ticks.children] : [];
-
       TIMING.forEach((s, si) => {
         const scene = document.getElementById("s-" + s.key);
         const inner = scene.querySelector(".inner");
         const at = (x) => s.start + x;
         const end = s.start + s.duration;
-        if (s.beat) tl.set(tickEls[s.beat - 1], { backgroundColor: "#ff5b24" }, s.start);
         if (si > 0) tl.fromTo(inner, { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "power1.out" }, s.start);
         // Phase 0: type the command, then the cursor goes (no blinking during the hold).
         if (s.type_dur > 0) {
@@ -632,7 +603,7 @@
           }, at(s.type_at));
           if (cur) tl.to(cur, { opacity: 0, duration: 0.2, ease: "none" }, at(s.type_at + s.type_dur + 0.15));
         }
-        // The close is the last frame and the thumbnail: no counters or rail on it.
+        // The close is the last frame and the thumbnail: no rail on it.
         if (s.id === "close") tl.to("#rail", { opacity: 0, duration: 0.3, ease: "power1.in" }, s.start);
         // Phase 1: the hero.
         scene.querySelectorAll('[data-p="1"]').forEach((el, k) => {
