@@ -89,7 +89,7 @@ rebuilds keep the pace unless you pass it again.
 the suite in `assets/transitions.js` (`build.py --transitions` lists it). Each card has its own,
 drawn from what the card is about: the real calendar into the shape, the streak snake into the
 run, the merge button into the merged PRs, the checks passing into machine time, the handle's
-identicon into the identity, the year's stats as one diff into the close. None shows a card's hero
+identicon into the identity. The close is the exception, a plain crossfade: the last card arrives quietly. None shows a card's hero
 number before the card lands. A card whose own are used takes the next, then a neutral grid; nothing
 repeats while there are others. `story.json:cuts` records each choice. Change them with
 `--cut lines=61,ship=1` (any number in the file) and `--cut-skip 51,52`; `--story` rebuilds keep them.

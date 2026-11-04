@@ -48,6 +48,17 @@ Optional, only when the data is there:
 Beats with thin data drop out, so a quiet year makes a shorter film rather than an empty one.
 Design and research: [docs/design.md](docs/design.md), [docs/research.md](docs/research.md).
 
+## Transitions
+
+`--pace suite` puts a transition on every cut, and most of them mean something: the real calendar
+into the calendar, the merge button into the merged PRs, the checks passing into machine time. The
+last card, the close, arrives on a plain crossfade.
+
+![A frame from each transition, with the card it leads into](examples/transitions.jpg)
+
+`build.py --transitions` lists the 33 with their numbers. Change one with `--cut lines=61`, rule one
+out with `--cut-skip 51`. The picture is drawn by `tools/suite_board.py`.
+
 ## Install
 
 With [skillfold](https://github.com/byronxlg/skillfold):
