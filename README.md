@@ -83,7 +83,8 @@ private can reach the film. Someone else's film never counts private work your o
 |---|---|---|
 | Contribution total, calendar, streak, active days, year on year | yes | yes, same totals |
 | Share of contributions in private repos | yes | yes, if they show private contributions on their profile |
-| Public repos, commits per repo, merged PRs, lines, reviews, releases, stars | yes | yes, within the limit below |
+| Public repos, commits per repo, merged PRs, lines, reviews, releases, total stars | yes | yes, within the limit below |
+| Stars gained this year | yes | no, star dates need a login |
 | Private repos, PRs and lines | counted, never named | not seen; the film says "public" where that matters |
 | Hour of day | your timezone | each commit's own clock, needs 40 public commits |
 | Agent share, models | from every commit | from public commits only, needs 10 |

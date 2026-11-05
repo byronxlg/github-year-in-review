@@ -883,7 +883,6 @@ class FakeSource(collect_public.PublicSource):
             (r"repos/\w+/\w+/languages$", {"Python": 10}),
             (r"repos/\w+/\w+/commits$", []),
             (r"repos/\w+/\w+/releases$", [{"created_at": "2026-05-01T00:00:00Z", "tag_name": "v1", "draft": False}]),
-            (r"repos/\w+/\w+/stargazers$", [{"starred_at": "2026-06-01T00:00:00Z"}]),
             (r"repos/\w+/\w+/actions/runs$", {"workflow_runs": [], "total_count": 0}),
             (r"repos/\w+/\w+$", {**repo, "name": "lib", "full_name": "other/lib"}),
         ]
@@ -918,7 +917,9 @@ class PublicRun(unittest.TestCase):
         self.assertEqual(data["pull_requests"]["biggest"]["title"], "Big one")
         self.assertIn("Claude Code", dict(data["agents"]["prs"]))
         self.assertEqual(data["releases"]["total"], 1)
-        self.assertEqual(data["stars"]["gained"], 1)
+        self.assertEqual(data["stars"]["gained"], 0)  # star dates need a login, so unknown not zero
+        self.assertEqual(data["stars"]["total_owned"], 1)
+        self.assertTrue(any("stars gained" in x for x in data["source"]["skipped"]))
         self.assertEqual(data["source"]["mode"], "public")
 
     def test_the_hour_is_the_commits_own_clock(self):
