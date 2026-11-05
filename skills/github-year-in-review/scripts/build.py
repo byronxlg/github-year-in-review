@@ -163,7 +163,7 @@ def archetype(d: dict) -> dict:
         adj, why_a = "Early", f"{pct(r['morning_share'])} of commits before 9 am"
     elif weekend > 0.35:
         adj, why_a = "Weekend", f"{pct(weekend)} of {'contributions' if public else 'commits'} on weekends"
-    elif r["streak"]["longest"] >= 30:
+    elif r["streak"]["longest"] >= 30 and not r["streak"].get("automation_capped"):
         adj, why_a = "Relentless", f"a {r['streak']['longest']}-day streak"
     else:
         adj, why_a = "Steady", f"{n(r['active_days'])} active days"
@@ -383,6 +383,8 @@ def b_yoy(d, c):
 def b_run(d, c):
     r, p = d["rhythm"], d["period"]
     s = r["streak"]
+    if s.get("automation_capped"):
+        return "automation commits past the sample: the run may be a job's"
     if s["longest"] < 3:
         return f"longest streak {s['longest']} days, under 3"
     still = s["end"] == p["to"] and s["current"] == s["longest"]
@@ -1359,7 +1361,7 @@ def scene_html(b: dict, story: dict, total: int, direction: str = "a", thumb: bo
         mx = max(x["commits"] for x in rows) or 1
         rows = "".join(
             f'<div class="wr rise" {P1}><div class="wl"><b>{E(x["name"])}</b>'
-            f'<span>{n(x["commits"])} commits</span></div>'
+            f'<span>{plural(x["commits"], "commit")}</span></div>'
             f'<div class="track"><i class="bar wbar" style="width:{max(2, 100 * x["commits"] / mx):.1f}%;background:{"#FF5B24" if k == 0 else "#5A5047"}"></i></div>'
             f'<div class="lang"><i style="background:{E(x["color"])}"></i>{E(x["language"] or "")}</div></div>'
             for k, x in enumerate(rows))
