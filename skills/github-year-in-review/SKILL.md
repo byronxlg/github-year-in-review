@@ -1,6 +1,6 @@
 ---
 name: github-year-in-review
-description: Turn someone's GitHub year into a short, postable year-in-review video (4:5, about 45 s, made for LinkedIn) using HyperFrames. Use when someone says "/github-year-in-review", "/year-in-review", "make my GitHub wrapped", "my year in code", "GitHub recap video", or wants to share what they shipped this year. Pulls real data with the gh CLI; no screenshots or uploads.
+description: Turn someone's GitHub year into a short, postable year-in-review video (4:5, about 45 s, made for LinkedIn) using HyperFrames. Use when someone says "/github-year-in-review", "/year-in-review", "make my GitHub wrapped", "my year in code", "GitHub recap video", or wants to share what they shipped this year. Pulls real data with the gh CLI, or with no login at all from a public handle; no screenshots or uploads.
 ---
 
 # /github-year-in-review
@@ -21,9 +21,10 @@ job is to check the numbers, sharpen the copy, look at the frames, and deliver.
 
 | Option | Default |
 |---|---|
-| `--user` | the authenticated `gh` user |
+| `--user` | the authenticated `gh` user; any other handle runs on public data, no login needed |
 | `--year` | the current year (labelled "so far" until Dec 31) |
-| `--tz` | this machine's timezone (used for the hour-of-day beat) |
+| `--tz` | this machine's timezone (used for the hour-of-day beat); on public data, each commit's own clock |
+| `--public` | off: public data only, no token, even for your own account |
 | `--include-private` | off: private repos are counted, never named |
 | `--no-music` | music on if a track is available |
 | `--format` | `portrait` 1080x1350 (only format shipped) |
@@ -33,7 +34,8 @@ exists). `<skill-dir>` is the directory holding this file.
 
 ## Requirements
 
-`gh` authenticated (`gh auth status`), Python 3.9+, Node 18+ with `npx hyperframes`, ffmpeg.
+Python 3.9+, Node 18+ with `npx hyperframes`, ffmpeg. `gh` authenticated (`gh auth status`) only for
+your own account's full numbers; a handle alone works without it.
 The HyperFrames domain skills (`hyperframes-core`, `hyperframes-cli`) for check and render.
 
 ## Step 1: Collect
@@ -57,6 +59,15 @@ cap does not cut them), and **actions**: GitHub Actions run time on the user's o
 workflow run listed, wall clock from start to finish; a page budget caps very busy accounts and
 the rest is estimated and flagged). These become beats only
 when the numbers are there (thresholds in [references/story.md](references/story.md)).
+
+**No login.** With `--public`, with no `gh` login, or with a `--user` who is not you, it answers the
+same queries from public data with no token (`scripts/collect_public.py`): about four minutes and at
+most 60 API requests, the hourly limit per IP. A token would count that person's private work you
+happen to share, so `--include-private` is the only way to run a token on someone else's account.
+`year.json` gets `source.mode: public`, and the film then claims only what public data can back:
+it says "public" on lists and leaves commit-share claims out. `source.skipped` says what ran out or
+failed: tell the user, and rerun after the hour if a beat they want depends on it. "No requests
+left" means another run or tool used the IP's hour; wait for it.
 
 **Gate:** read `year.json` and sanity-check it before building. Headline total should match the
 number on the user's GitHub profile for that year. If something looks wrong (a bot the detector

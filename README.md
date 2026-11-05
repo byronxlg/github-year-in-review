@@ -69,8 +69,31 @@ skillfold add github:byronxlg/github-year-in-review/skills/github-year-in-review
 
 Or copy `skills/github-year-in-review/` into `~/.claude/skills/`.
 
-Needs: `gh` (authenticated), Python 3.9+, Node 18+ (`npx hyperframes`), ffmpeg. The
+Needs: Python 3.9+, Node 18+ (`npx hyperframes`), ffmpeg. `gh`, signed in, only for your own
+private numbers: see [No login needed](#no-login-needed). The
 HyperFrames skills (`hyperframes-core`, `hyperframes-cli`) help the agent with check and render.
+
+## No login needed
+
+A GitHub handle is enough: `/github-year-in-review --user octocat`. With no `gh` login, or for any
+account that is not yours, it uses only what GitHub shows anyone, with no token sent, so nothing
+private can reach the film. Someone else's film never counts private work your own token can see.
+
+| | Signed in, your account | No login |
+|---|---|---|
+| Contribution total, calendar, streak, active days, year on year | yes | yes, same totals |
+| Share of contributions in private repos | yes | yes, if they show private contributions on their profile |
+| Public repos, commits per repo, merged PRs, lines, reviews, releases, total stars | yes | yes, within the limit below |
+| Stars gained this year | yes | no, star dates need a login |
+| Private repos, PRs and lines | counted, never named | not seen; the film says "public" where that matters |
+| Hour of day | your timezone | each commit's own clock, needs 40 public commits |
+| Agent share, models | from every commit | from public commits only, needs 10 |
+| Actions time | every run | public repos, dropped if the requests run out |
+
+It takes about four minutes (search allows 10 requests a minute) and up to 60 API requests, the
+hourly limit per IP. Past that it leaves things out instead of guessing, and `source.skipped` in
+`year.json` lists what. The calendar and activity list come from GitHub's profile pages, not an API,
+so a redesign can break them; [a weekly check](.github/workflows/public-smoke.yml) catches that.
 
 ## Use
 

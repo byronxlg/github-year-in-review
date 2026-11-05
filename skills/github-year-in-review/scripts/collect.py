@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Collect one GitHub user's year into a JSON file for the year-in-review video.
 
-Stdlib only. Talks to GitHub through the authenticated `gh` CLI (`gh api graphql`),
-so it sees whatever the caller's token can see.
+Stdlib only. Talks to GitHub through the authenticated `gh` CLI (`gh api graphql`), so it sees
+whatever the caller's token can see. That is right for your own account and wrong for anyone
+else's: your token would count their private work that you happen to share. So another person's
+account, or no `gh` login at all, runs on public data with no token (collect_public.py).
 
     python3 collect.py --user octocat --year 2026 --out year.json [--tz Pacific/Auckland]
-                       [--include-private] [--raw-cache raw.json]
+                       [--public] [--include-private] [--raw-cache raw.json]
 
 Privacy default: private repositories are counted in totals but never named.
 The video is made to be posted publicly; a private repo name in a LinkedIn post is a leak.
@@ -32,6 +34,14 @@ STAR_REPOS = 12  # owned repos whose stargazers are scanned for stars gained thi
 RUN_PAGES_PER_REPO = 100  # Actions: 100 runs a page, so up to 10,000 runs a repo are timed
 RUN_PAGE_BUDGET = 600  # Actions: pages across all repos (one REST call each); past it, estimated
 RUN_MAX_MINUTES = 6 * 60  # a run longer than a hosted job's 6 h limit is clipped (stale updated_at)
+_run_budget, _run_workers = (lambda: RUN_PAGE_BUDGET), 6
+
+
+def use_source(graphql, rest, search_gap: float, actions_budget, actions_workers: int) -> None:
+    """Answer the queries from somewhere other than `gh` (collect_public.py)."""
+    global gh_graphql, gh_rest, SEARCH_GAP, _run_budget, _run_workers
+    gh_graphql, gh_rest, SEARCH_GAP = graphql, rest, search_gap
+    _run_budget, _run_workers = actions_budget, actions_workers
 
 
 def gh_graphql(query: str, **variables) -> dict:
@@ -443,11 +453,13 @@ def actions_time(owned: list[dict], user: str, year: int, start: dt.datetime, zo
         by_repo[public_name(r, include_private)] += s["minutes"]
     mean = minutes / runs if runs else 0.0
     est_minutes = 0.0
+    incomplete = False
     for r in pending:  # count the runs we did not time; estimate their minutes from the mean
         try:
             total = gh_rest(f"repos/{r['nameWithOwner']}/actions/runs", per_page=1,
                             created=f"{year}-01-01..{year}-12-31").get("total_count", 0)
         except RuntimeError:
+            incomplete = True  # its later runs went uncounted, not even estimated
             continue
         extra = max(0, total - timed.get(r["nameWithOwner"], 0))
         if not extra:
@@ -474,6 +486,7 @@ def actions_time(owned: list[dict], user: str, year: int, start: dt.datetime, zo
         "estimated_repos": estimated,
         "estimated": bool(estimated),
         "unreadable_repos": len(errors),
+        "incomplete": incomplete,
     }
 
 
@@ -526,7 +539,7 @@ def commit_verb(message: str) -> str | None:
 
 
 def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict, dict]:
-    zone = ZoneInfo(tz)
+    zone = ZoneInfo(tz) if tz else None  # None: each commit's own clock (public data, a stranger's tz)
     today = dt.datetime.now(dt.timezone.utc)
     start = dt.datetime(year, 1, 1, tzinfo=dt.timezone.utc)
     end = min(dt.datetime(year, 12, 31, 23, 59, 59, tzinfo=dt.timezone.utc), today)
@@ -702,7 +715,8 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
             automated_full.append(f"{r['_owner']}/{r['_name']}")
             continue
         for c in commits:
-            when = dt.datetime.fromisoformat(c["committedDate"].replace("Z", "+00:00")).astimezone(zone)
+            when = dt.datetime.fromisoformat(c["committedDate"].replace("Z", "+00:00"))
+            when = when.astimezone(zone) if zone else when
             hours[when.hour] += 1
             weekdays[when.weekday()] += 1
             week_hours[(when.weekday(), when.hour)] += 1
@@ -772,7 +786,10 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
     releases.sort(key=lambda x: -x["count"])
 
     # GitHub Actions time on the user's own repos (optional beat; None when unreadable).
-    actions = actions_time(owned, user, year, start, zone, include_private)
+    actions = None
+    if _run_budget() > 0:
+        actions = actions_time(owned, user, year, start, zone or dt.timezone.utc, include_private,
+                               budget=_run_budget(), workers=_run_workers)
 
     for r in repos:
         for k in [k for k in r if k.startswith("_")]:
@@ -794,7 +811,7 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
             "to": end.date().isoformat(),
             "partial": is_partial,
             "days": len(days),
-            "timezone": tz,
+            "timezone": tz or "each commit's own clock",
         },
         "totals": {
             "contributions": cc["contributionCalendar"]["totalContributions"],
@@ -900,14 +917,26 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--year", type=int, default=dt.date.today().year)
     p.add_argument("--tz", default=None, help="IANA timezone for time-of-day stats (default: this machine's)")
     p.add_argument("--include-private", action="store_true", help="name private repos (off by default)")
+    p.add_argument("--public", action="store_true",
+                   help="public data only, no token: the default for anyone but yourself, and without gh")
     p.add_argument("--out", default="year.json")
     p.add_argument("--raw-cache", help="also write the raw API payloads here")
     a = p.parse_args(argv)
-    user = a.user or subprocess.run(["gh", "api", "user", "-q", ".login"], capture_output=True, text=True).stdout.strip()
+    viewer = gh_viewer()
+    user = a.user or viewer
     if not user:
-        raise SystemExit("No --user and gh is not authenticated")
-    tz = a.tz or local_tz()
-    data, raw = collect(user, a.year, tz, a.include_private)
+        raise SystemExit("No --user and gh is not authenticated: pass --user <github handle>")
+    if a.public and a.include_private:
+        raise SystemExit("--public cannot see private repos, so --include-private has nothing to name")
+    if use_public(user, viewer, a.public, a.include_private):
+        import collect_public  # the public path is a sibling script, only needed here
+
+        print(f"{user}: public data only, no token"
+              + ("" if a.public or not viewer else f" (signed in as {viewer}, so your access is not counted)"),
+              file=sys.stderr)
+        data, raw = collect_public.run(user, a.year, a.tz)
+    else:
+        data, raw = collect(user, a.year, a.tz or local_tz(), a.include_private)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     with open(a.out, "w") as fh:
         json.dump(data, fh, indent=2)
@@ -921,6 +950,23 @@ def main(argv: list[str] | None = None) -> int:
         file=sys.stderr,
     )
     return 0
+
+
+def gh_viewer() -> str | None:
+    """The signed-in `gh` login, or None with no gh or no login."""
+    try:
+        proc = subprocess.run(["gh", "api", "user", "-q", ".login"], capture_output=True, text=True)
+    except OSError:
+        return None
+    return (proc.stdout.strip() or None) if proc.returncode == 0 else None
+
+
+def use_public(user: str, viewer: str | None, asked: bool, include_private: bool) -> bool:
+    """A token is only for the token's own account. On anyone else's it would count their private
+    work you can see, in a film meant for posting. --include-private is the way to say you mean it."""
+    if asked or not viewer:
+        return True
+    return user.lower() != viewer.lower() and not include_private
 
 
 def local_tz() -> str:
