@@ -11,8 +11,8 @@ No token is ever sent, so the result cannot contain anything private. It also me
 day comes from each commit's own clock, not from the timezone of whoever runs this.
 
 The hourly limit is spent on what the film uses most: profile and top repos first, then every
-merged PR's line counts (all or none, a partial sum would be a wrong number), then releases and
-stars, and Actions time with what is left. `source.skipped` in year.json says what went without.
+merged PR's line counts (all or none, a partial sum would be a wrong number), then releases, and
+Actions time with what is left. `source.skipped` in year.json says what went without.
 """
 
 from __future__ import annotations
@@ -40,7 +40,6 @@ SEARCH_WAITS = (30, 65, 130)
 TOP_REPOS = 6  # repos outside the user's own that get a detail call
 LANGUAGE_REPOS = 5  # repos whose byte mix is read
 GAP_REPOS = 3  # repos search under-reports (it skips some), read directly for the clock sample
-STAR_REPOS = 5  # repos scanned for stars gained
 RELEASE_REPOS = 8  # recently pushed repos read for releases
 CORE_RESERVE = 2  # requests left alone so a follow-up call in the same hour still works
 
@@ -407,12 +406,11 @@ class PublicSource:
         self.prs_by_month = dict(by_month)
 
     def reserved_for_repos(self) -> int:
-        """Requests the later queries need: stars plus releases."""
+        """Requests the later queries need: releases."""
         year_s = str(self.year)
         rows = self.own_repos()
-        stars = sum(1 for r in rows if r.get("stargazers_count"))
         live = sum(1 for r in rows if not r.get("fork") and (r.get("pushed_at") or "")[:4] >= year_s)
-        return min(stars, STAR_REPOS) + min(live, RELEASE_REPOS)
+        return min(live, RELEASE_REPOS)
 
     def q_prs(self, q: str) -> dict:
         self.load_prs()
@@ -463,33 +461,11 @@ class PublicSource:
     def q_total(self, year: int) -> dict:
         return {"user": {"contributionsCollection": {"contributionCalendar": {"totalContributions": self.calendar(year)[1]}}}}
 
-    def q_stars(self, owner: str, name: str, after: str | None) -> dict:
-        """Newest stars first, as GraphQL gives them. REST only sorts oldest first, so start from
-        the last page and walk back."""
-        empty = {"repository": {"stargazers": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "edges": []}}}
-        spent = self.memo.setdefault("star_repos", set())
-        if f"{owner}/{name}" not in spent and len(spent) >= STAR_REPOS or not self.can_spend():
-            self.skip("stars on smaller repos")
-            return empty
-        spent.add(f"{owner}/{name}")
-        accept = "application/vnd.github.star+json"
-        path = f"repos/{owner}/{name}/stargazers"
-        try:
-            page = int(after) if after else None
-            if page is None:
-                rows, headers = self.api(path, accept=accept, per_page=100, page=1)
-                last = re.search(r'[?&]page=(\d+)>; rel="last"', headers.get("Link") or "")
-                page = int(last.group(1)) if last else 1
-                if page > 1:
-                    rows = self.api(path, accept=accept, per_page=100, page=page)[0]
-            else:
-                rows = self.api(path, accept=accept, per_page=100, page=page)[0]
-        except RuntimeError as exc:
-            self.skip(f"stars on {name} ({str(exc)[:80]})")
-            return empty
-        return {"repository": {"stargazers": {
-            "pageInfo": {"hasNextPage": page > 1, "endCursor": str(page - 1)},
-            "edges": [{"starredAt": r["starred_at"]} for r in reversed(rows)]}}}
+    def q_stars(self) -> dict:
+        """When a star landed needs a login (the timestamps answer 401), so stars gained this year
+        stay unknown. The film falls back on total stars, which build.py already does at zero."""
+        self.skip("stars gained this year (GitHub needs a login for star dates)")
+        return {"repository": {"stargazers": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "edges": []}}}
 
     def graphql(self, query: str, **v) -> dict:
         """collect.py's gh_graphql, answered without GraphQL."""
@@ -504,7 +480,7 @@ class PublicSource:
         if query is C.Q_TOTAL:
             return self.q_total(int(v["from"][:4]))
         if query is C.Q_STARS:
-            return self.q_stars(v["owner"], v["name"], v.get("after"))
+            return self.q_stars()
         if "issueCount" in query:
             return self.q_count(v["q"])
         raise SystemExit("collect_public: a query it does not know; add it here")
