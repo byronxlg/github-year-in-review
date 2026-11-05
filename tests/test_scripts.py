@@ -2,12 +2,15 @@
 
 import datetime as dt
 import contextlib
+import email.message
 import io
 import json
 import sys
 import re
 import tempfile
 import unittest
+import unittest.mock as mock
+import urllib.error
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "skills" / "github-year-in-review" / "scripts"
@@ -15,6 +18,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import build  # noqa: E402
 import collect  # noqa: E402
+import collect_public  # noqa: E402
 
 
 def year_fixture(**over) -> dict:
@@ -789,6 +793,208 @@ class PickerReel(unittest.TestCase):
         # he picks by number: new ones go on the end
         self.assertEqual(names[41], "Contribution grid, left to right")
         self.assertEqual(names[46], "Diff rows")
+
+
+CALENDAR_PAGE = """
+<h2 id="js-contribution-activity-description"> 1,204
+  contributions
+    in 2026 </h2>
+<td tabindex="0" data-ix="0" style="width: 11px" data-date="2026-01-02" id="contribution-day-component-5-0" data-level="1" role="gridcell"></td>
+<td tabindex="0" data-ix="0" style="width: 11px" data-date="2026-01-01" id="contribution-day-component-4-0" data-level="1" role="gridcell"></td>
+<tool-tip id="tooltip-a" for="contribution-day-component-4-0" popover="manual">1,200 contributions on January 1st.</tool-tip>
+<tool-tip id="tooltip-b" for="contribution-day-component-5-0" popover="manual">No contributions on January 2nd.</tool-tip>
+"""
+ACTIVITY_PAGE = """<script>Created 999 commits</script><h2>Contribution activity</h2>
+<span>Created 42 commits in 2 repositories</span>
+<a>octo/app</a> <span>31 commits</span> <a>other/lib</a> <span>11 commits</span>
+<span>Reviewed 3 pull requests in 1 repository</span> <span>Opened an issue in</span> <a>x/y</a>
+<span>Opened 2 other issues in 1 repository</span>
+<span>795 contributions in private repositories</span> Oct 1 &ndash; Oct 31"""
+
+
+class PublicParsing(unittest.TestCase):
+    def test_calendar_page(self):
+        days, total = collect_public.parse_calendar(CALENDAR_PAGE)
+        self.assertEqual(total, 1204)
+        self.assertEqual(days, [{"date": "2026-01-01", "contributionCount": 1200},
+                                {"date": "2026-01-02", "contributionCount": 0}])
+
+    def test_activity_page(self):
+        got = collect_public.parse_activity(ACTIVITY_PAGE)
+        self.assertEqual(got["commits"], {"octo/app": 31, "other/lib": 11})
+        self.assertEqual((got["private"], got["reviews"], got["issues"]), (795, 3, 3))
+
+    def test_a_page_that_is_not_the_activity_list_is_none(self):
+        self.assertIsNone(collect_public.parse_activity("<html>Sign in to GitHub</html>"))
+
+    def test_utc_stamps_take_the_nearest_real_clock(self):
+        got = collect_public.fill_offsets(["2026-01-10T01:00:00+13:00", "2026-01-10T03:00:00Z",
+                                           "2026-07-10T01:00:00+12:00", "2026-07-10T03:00:00Z"])
+        self.assertEqual(got[1], "2026-01-10T16:00:00+13:00")
+        self.assertEqual(got[3], "2026-07-10T15:00:00+12:00")
+
+    def test_no_real_clock_stays_utc(self):
+        self.assertEqual(collect_public.fill_offsets(["2026-01-10T03:00:00Z"]), ["2026-01-10T03:00:00Z"])
+
+
+class ChoosingTheView(unittest.TestCase):
+    def test_a_token_is_only_for_its_own_account(self):
+        self.assertFalse(collect.use_public("Me", "me", False, False))
+        self.assertTrue(collect.use_public("them", "me", False, False))
+        self.assertFalse(collect.use_public("them", "me", False, True))
+        self.assertTrue(collect.use_public("them", None, False, False))
+        self.assertTrue(collect.use_public("me", "me", True, False))
+
+
+class FakeSource(collect_public.PublicSource):
+    """GitHub, as anonymous callers see it, for one small account. Fails on anything else."""
+
+    def __init__(self, core=60):
+        super().__init__("octo", 2026)
+        self.core_left = self.fake_left = core
+        self.urls = []
+        self.today = dt.date(2026, 11, 5)
+
+    def _request(self, url, accept, **extra):
+        self.urls.append(url)
+        if url.startswith(collect_public.WEB):
+            return (CALENDAR_PAGE if "contributions?" in url else ACTIVITY_PAGE).encode(), {}
+        self.fake_left -= 0 if "/search/" in url else 1
+        if self.fake_left < 0 and "/search/" not in url:
+            raise urllib.error.HTTPError(url, 403, "x", email.message.Message(), io.BytesIO(b'{"message":"API rate limit exceeded"}'))
+        path = url.split(".com/", 1)[1].split("?")[0]
+        repo = {"name": "app", "full_name": "octo/app", "fork": False, "created_at": "2026-02-01T00:00:00Z",
+                "pushed_at": "2026-10-01T00:00:00Z", "stargazers_count": 1, "forks_count": 0,
+                "description": "An app", "language": "Python"}
+        pr = {"title": "Big one", "number": 7, "created_at": "2026-03-03T00:00:00Z", "html_url": "u",
+              "pull_request": {"merged_at": "2026-03-04T00:00:00Z"},
+              "repository_url": "https://api.github.com/repos/octo/app"}
+        commit = {"sha": "a", "repository": {"full_name": "octo/app"},
+                  "commit": {"message": "Add thing\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+                             "author": {"date": "2026-03-03T21:15:00.000+13:00", "email": "x@y"}}}
+        routes = [
+            (r"users/octo/repos$", [repo]),
+            (r"users/octo$", {"id": 1, "login": "octo", "name": "Octo Cat ", "avatar_url": "a",
+                              "created_at": "2020-01-01T00:00:00Z", "followers": 2}),
+            (r"search/commits$", {"total_count": 1, "items": [commit]}),
+            (r"search/issues$", {"total_count": 1, "items": [pr]}),
+            (r"repos/\w+/\w+/pulls/7$", {"additions": 500, "deletions": 5, "changed_files": 2,
+                                         "head": {"ref": "claude/x"}, "base": {"repo": {"stargazers_count": 1}}}),
+            (r"repos/\w+/\w+/languages$", {"Python": 10}),
+            (r"repos/\w+/\w+/commits$", []),
+            (r"repos/\w+/\w+/releases$", [{"created_at": "2026-05-01T00:00:00Z", "tag_name": "v1", "draft": False}]),
+            (r"repos/\w+/\w+/stargazers$", [{"starred_at": "2026-06-01T00:00:00Z"}]),
+            (r"repos/\w+/\w+/actions/runs$", {"workflow_runs": [], "total_count": 0}),
+            (r"repos/\w+/\w+$", {**repo, "name": "lib", "full_name": "other/lib"}),
+        ]
+        for pattern, body in routes:
+            if re.fullmatch(pattern, path):
+                return json.dumps(body).encode(), {"X-RateLimit-Remaining": str(self.fake_left)}
+        raise AssertionError(f"unexpected call {url}")
+
+
+class PublicRun(unittest.TestCase):
+    def setUp(self):
+        saved = (collect.gh_graphql, collect.gh_rest, collect.SEARCH_GAP, collect._run_budget, collect._run_workers)
+        self.addCleanup(lambda: collect.use_source(*saved))
+        self.addCleanup(setattr, collect_public, "SEARCH_GAP", collect_public.SEARCH_GAP)
+        collect_public.SEARCH_GAP = 0
+        self.addCleanup(setattr, collect_public.time, "sleep", collect_public.time.sleep)
+        collect_public.time.sleep = lambda s: None
+
+    def run_source(self, **kw):
+        src = FakeSource(**kw)
+        with contextlib.redirect_stderr(io.StringIO()):
+            return collect_public.run("octo", 2026, None, src)[0], src
+
+    def test_the_year_comes_out_in_the_collectors_shape(self):
+        data, _ = self.run_source()
+        self.assertEqual(data["totals"]["contributions"], 1204)
+        self.assertEqual(data["totals"]["private_contributions"], 795 * 11)
+        self.assertEqual(data["totals"]["reviews"], 33)
+        self.assertEqual(data["repos"][0]["name"], "octo/app")
+        self.assertEqual(data["user"]["name"], "Octo Cat")
+        self.assertEqual(data["pull_requests"]["lines_added"], 500)
+        self.assertEqual(data["pull_requests"]["biggest"]["title"], "Big one")
+        self.assertIn("Claude Code", dict(data["agents"]["prs"]))
+        self.assertEqual(data["releases"]["total"], 1)
+        self.assertEqual(data["stars"]["gained"], 1)
+        self.assertEqual(data["source"]["mode"], "public")
+
+    def test_the_hour_is_the_commits_own_clock(self):
+        data, _ = self.run_source()
+        self.assertEqual(data["rhythm"]["peak_hour"], 21)
+        self.assertEqual(data["period"]["timezone"], "each commit's own clock")
+
+    def test_nothing_private_can_be_named_and_no_token_is_sent(self):
+        data, _ = self.run_source()
+        self.assertFalse(any(r["private"] for r in data["repos"]))
+        self.assertEqual(data["new_private_repos"], 0)
+        sent = []
+
+        class Response(io.BytesIO):
+            headers = {}
+
+        def urlopen(request, timeout):
+            sent.append(dict(request.headers))
+            return Response(b"{}")
+
+        with mock.patch.object(collect_public.urllib.request, "urlopen", urlopen):
+            collect_public.PublicSource("octo", 2026).api("users/octo")
+        self.assertTrue(sent)
+        self.assertFalse(any(k.lower() == "authorization" for k in sent[0]))
+
+    def test_too_few_requests_drops_lines_rather_than_summing_part_of_them(self):
+        data, src = self.run_source(core=5)
+        self.assertEqual(data["pull_requests"]["lines_added"], 0)
+        self.assertTrue(any("line counts" in x for x in data["source"]["skipped"]))
+        self.assertIsNone(data["actions"])
+
+    def test_no_requests_at_all_says_why(self):
+        with self.assertRaises(SystemExit) as caught:
+            self.run_source(core=0)
+        self.assertIn("60 requests an hour", str(caught.exception))
+
+    def test_the_public_year_builds_a_film(self):
+        data, _ = self.run_source()
+        story = build.make_story(data, "cta")
+        self.assertEqual(story["beats"][0]["id"], "hook")
+        self.assertEqual(story["beats"][-1]["id"], "close")
+
+
+class PublicCopy(unittest.TestCase):
+    """85% private: what the film may and may not say about a stranger."""
+
+    def fixture(self, **over):
+        d = year_fixture()
+        d["source"] = {"mode": "public"}
+        d["totals"].update(contributions=1000, private_contributions=850, commits=100)
+        d["automation"] = {"repos": [{"name": "octo/octo", "commits": 90, "template_share": 0.9}], "commits": 90}
+        d.update(over)
+        return d
+
+    def test_identity_rests_on_the_private_share(self):
+        got = build.archetype(self.fixture())
+        self.assertIn("85% of contributions in private repos", got["reason"])
+        self.assertNotIn("automation", got["reason"])
+
+    def test_a_thin_sample_says_nothing_about_the_clock(self):
+        d = self.fixture()
+        d["rhythm"].update(night_share=0.9, commits_sampled=10)
+        self.assertNotIn("Night", build.archetype(d)["name"])
+
+    def test_the_hook_says_how_much_is_private(self):
+        line = build.b_hook(self.fixture(), build.ctx_of(self.fixture()))["line"]
+        self.assertIn("850 of them in private repos", line)
+
+    def test_the_automation_beat_only_compares_public_commits(self):
+        sub = build.b_surprise(self.fixture(), {})["sub"]
+        self.assertIn("more public commits than you did (10)", sub)
+
+    def test_your_own_film_keeps_its_words(self):
+        d = year_fixture(repo_count=2)
+        self.assertFalse(build.public_view(d))
+        self.assertIn("across", build.b_hook(d, build.ctx_of(d))["line"])
 
 
 if __name__ == "__main__":

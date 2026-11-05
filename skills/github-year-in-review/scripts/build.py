@@ -133,30 +133,49 @@ def weekend_share(d: dict) -> float:
     return (wk[5] + wk[6]) / sum(wk) if sum(wk) >= 40 else r["weekend_share"]
 
 
+def public_view(d: dict) -> bool:
+    """Collected with no token: every list is public work only, the calendar and its private count
+    are the whole year. A claim about "you" has to hold with the private part unseen."""
+    return (d.get("source") or {}).get("mode") == "public"
+
+
+def private_share(d: dict) -> float:
+    t = d["totals"]
+    return (t.get("private_contributions") or 0) / t["contributions"] if t.get("contributions") else 0.0
+
+
 def archetype(d: dict) -> dict:
     r, pr, t = d["rhythm"], d["pull_requests"], d["totals"]
     weekend = weekend_share(d)
-    auto_share = d["automation"]["commits"] / t["commits"] if t["commits"] else 0
+    public = public_view(d)
+    # With private work unseen, automation is measured against everything the calendar counts,
+    # a thin commit sample says nothing about the clock, and one outside owner may be the same
+    # person's second account, so it does not make them a contributor.
+    auto_share = d["automation"]["commits"] / ((t["contributions"] if public else t["commits"]) or 1)
+    clock_known = not public or r["commits_sampled"] >= 40
+    outside_owners = {name.split("/")[0] for name, _ in pr.get("external_public", [])}
     public_external = pr.get("external_public", [])
     new = len(d["new_repos"]) + d.get("new_private_repos", 0)
 
-    if r["night_share"] > 0.30:
+    if clock_known and r["night_share"] > 0.30:
         adj, why_a = "Night Shift", f"{pct(r['night_share'])} of commits after 10 pm"
-    elif r["morning_share"] > 0.25:
+    elif clock_known and r["morning_share"] > 0.25:
         adj, why_a = "Early", f"{pct(r['morning_share'])} of commits before 9 am"
     elif weekend > 0.35:
-        adj, why_a = "Weekend", f"{pct(weekend)} of commits on weekends"
+        adj, why_a = "Weekend", f"{pct(weekend)} of {'contributions' if public else 'commits'} on weekends"
     elif r["streak"]["longest"] >= 30:
         adj, why_a = "Relentless", f"a {r['streak']['longest']}-day streak"
     else:
         adj, why_a = "Steady", f"{n(r['active_days'])} active days"
 
     ag = d.get("agents") or {}
-    if auto_share > 0.25 and new < 6:
+    if public and private_share(d) >= 0.5:
+        noun, why_n = "Builder", f"{pct(private_share(d))} of contributions in private repos"
+    elif auto_share > 0.25 and new < 6:
         noun, why_n = "Automator", f"{pct(auto_share)} of commits by your own automation"
     elif ag.get("agent_share", 0) >= 0.4 and ag.get("agent_commits_est", 0) >= 100:
         noun, why_n = "Orchestrator", f"{pct(ag['agent_share'])} of commits shipped with agents"
-    elif sum(c for _, c in public_external) >= 10:
+    elif sum(c for _, c in public_external) >= 10 and (not public or len(outside_owners) >= 2):
         noun, why_n = "Contributor", f"{n(sum(c for _, c in public_external))} PRs merged into open source"
     elif t["reviews"] > t["prs"] and t["reviews"] >= 10:
         noun, why_n = "Reviewer", f"{n(t['reviews'])} reviews"
@@ -165,7 +184,7 @@ def archetype(d: dict) -> dict:
     elif pr["merged"] >= 100:
         noun, why_n = "Shipper", f"{n(pr['merged'])} merged PRs"
     else:
-        noun, why_n = "Maker", f"{n(t['commits'])} commits"
+        noun, why_n = "Maker", f"{n(t['commits'])} {'public ' if public else ''}commits"
     return {"name": f"The {adj} {noun}", "reason": f"{why_n[0].upper()}{why_n[1:]}, {why_a}."}
 
 
@@ -308,6 +327,11 @@ def ctx_of(d: dict) -> dict:
 
 def b_hook(d, c):
     u, t, r = d["user"], d["totals"], d["rhythm"]
+    if public_view(d) and t.get("private_contributions"):
+        return {"id": "hook", "label": f"GitHub, {c['year_label']}",
+                "name": u["name"], "number": t["contributions"], "unit": "contributions",
+                "line": f"on GitHub, {n(t['private_contributions'])} of them in private repos, "
+                        f"over {plural(r['active_days'], 'active day')}."}
     return {"id": "hook", "label": f"GitHub, {c['year_label']}",
             "name": u["name"], "number": t["contributions"], "unit": "contributions",
             "line": f"on GitHub, across {plural(d['repo_count'], 'repo')} and {plural(r['active_days'], 'active day')}."
@@ -365,8 +389,8 @@ def b_run(d, c):
     return {"id": "run", "label": "The longest run",
             "number": s["longest"], "unit": "days in a row", "run_from": s["start"], "end": s["end"],
             "sub": f"{short_date(s['start'])} to {short_date(s['end'])}" + (", and still going" if still else ""),
-            "facts": [[n(r["active_days"]), "days with commits"],
-                      [pct(weekend_share(d)), "of commits on weekends"]]}
+            "facts": [[n(r["active_days"]), f"days with {'contributions' if public_view(d) else 'commits'}"],
+                      [pct(weekend_share(d)), f"of {'contributions' if public_view(d) else 'commits'} on weekends"]]}
 
 
 def b_clock(d, c):
@@ -409,7 +433,7 @@ def b_work(d, c):
     top = c["human_repos"][:4]
     if not top:
         return "no public repo that is not automation"
-    return {"id": "work", "label": "Where the hours went",
+    return {"id": "work", "label": "Where the public hours went" if public_view(d) else "Where the hours went",
             "rows": [{"name": x["short"], "commits": x["commits"], "language": x["language"],
                       "color": x["color"] or "#A39B8E"} for x in top],
             "lead": clause(top[0]["description"], 12), "lead_name": top[0]["short"]}
@@ -493,7 +517,8 @@ def b_ship(d, c):
         ext_line = f"{n(pr['external_merged'])} of them into other people's repos."
     return {"id": "ship", "label": "What landed",
             "number": pr["merged"], "unit": "pull requests merged", "opened": pr["opened"],
-            "sub": f"{pct(pr['merge_rate'])} of the {n(pr['opened'])} opened. {n(t['reviews'])} reviews given.",
+            "sub": f"{pct(pr['merge_rate'])} of the {n(pr['opened'])} {'public ones ' if public_view(d) else ''}opened. "
+                   f"{n(t['reviews'])} reviews given.",
             "ext": ext_line}
 
 
@@ -518,7 +543,7 @@ def b_lines(d, c):
     partial = pr.get("sampled", 0) < pr.get("opened", 0)
     return {"id": "lines", "label": "Lines changed",
             "added": added, "removed": removed, "net": added - removed,
-            "unit": "lines in merged pull requests" + (", at least" if partial else ""),
+            "unit": f"lines in {'public ' if public_view(d) else ''}merged pull requests" + (", at least" if partial else ""),
             "ref": ref,
             "sub": f"Added: {times_phrase(ref['ratio'])} {ref['name']}." if ref
             else f"Net: {'+' if added >= removed else '-'}{n(abs(added - removed))} lines."}
@@ -534,7 +559,7 @@ def b_actions(d, c):
     share = bm[peak] / (sum(bm) or 1)
     tail = (f", {pct(share)} of it in {MONTHS[peak]}." if share >= 0.5 else f", over {plural(act['runs'], 'run')}.")
     return {"id": "actions", "label": "Machine time",
-            "number": act["minutes"], "unit": "minutes of Actions runs on your repos",
+            "number": act["minutes"], "unit": f"minutes of Actions runs on your {'public ' if public_view(d) else ''}repos",
             "by_month": bm, "runs": act["runs"],
             "sub": (f"{span[0].upper()}{span[1:]} of machine time{tail}"
                     + (" Partly estimated." if act.get("estimated") else ""))}
@@ -577,7 +602,8 @@ def b_oss(d, c):
         return f"{sum(k for _, k in ext)} PRs merged into others' public repos, under 3"
     stars = pr.get("external_public_stars") or {}
     return {"id": "oss", "label": "Open source",
-            "number": sum(k for _, k in ext), "unit": "PRs merged into other people's projects",
+            "number": sum(k for _, k in ext), "unit": "PRs merged into repos outside your account" if public_view(d)
+            else "PRs merged into other people's projects",
             "rows": [{"name": r, "count": k, "stars": stars.get(r, 0)} for r, k in ext[:3]]}
 
 
@@ -590,7 +616,8 @@ def b_surprise(d, c):
     return {"id": "surprise", "label": "One more thing",
             "number": auto["commits"], "unit": "commits were not you",
             "sub": (f"A scheduled job in {a['name'].split('/')[-1]}."
-                    + (f" It made more commits than you did ({n(human_commits)})." if auto["commits"] > human_commits else ""))}
+                    + (f" It made more {'public ' if public_view(d) else ''}commits than you did ({n(human_commits)})."
+                       if auto["commits"] > human_commits else ""))}
 
 
 def day_lift(d: dict) -> float:
