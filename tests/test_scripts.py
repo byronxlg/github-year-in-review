@@ -62,6 +62,25 @@ class CollectHelpers(unittest.TestCase):
         s = collect.streaks(days)
         self.assertEqual((s["longest"], s["start"], s["end"], s["current"]), (3, "2025-01-04", "2025-01-06", 1))
 
+    def test_a_daily_job_is_not_a_streak(self):
+        job = [{"messageHeadline": "Update contribution snake [skip ci]", "committedDate": f"2025-01-{i:02d}T01:00:00Z"} for i in range(1, 11)]
+        quote = [{"messageHeadline": "Update daily quote", "committedDate": f"2025-01-{i:02d}T02:00:00Z"} for i in range(1, 11)]
+        person = [{"messageHeadline": "fix the login page", "committedDate": "2025-01-03T03:00:00Z"}]
+        by_day = collect.automation_by_day(job + quote + person)
+        self.assertEqual(sum(by_day.values()), 20, "two jobs count, the person's commit does not")
+        days = [{"date": f"2025-01-{i:02d}", "contributionCount": 2} for i in range(1, 11)]
+        days[2]["contributionCount"] = 3  # the person's own commit on top
+        days[6]["contributionCount"] = 5
+        self.assertEqual(collect.streaks(days)["longest"], 10)
+        own = collect.without_automation(days, by_day)
+        self.assertEqual([d["contributionCount"] for d in own], [0, 0, 1, 0, 0, 0, 3, 0, 0, 0])
+        self.assertEqual(collect.streaks(own)["longest"], 1)
+
+    def test_no_run_beat_when_the_jobs_days_are_not_all_known(self):
+        year = year_fixture()
+        year["rhythm"]["streak"] = {"longest": 200, "start": "2025-03-01", "end": "2025-09-16", "current": 0, "automation_capped": True}
+        self.assertIsInstance(build.b_run(year, {}), str)
+
     def test_template_share_flags_cron(self):
         bot = [{"messageHeadline": f"fleet page: registry changed {i}"} for i in range(80)]
         human = [{"messageHeadline": m} for m in ("add login", "fix typo", "bump deps", "refactor api")] * 20

@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 
 HISTORY_REPOS = 6  # repos whose commit history is sampled for time-of-day and messages
 HISTORY_PAGES = 5  # 100 commits per page, per repo
+AUTOMATION_REPEATS = 10  # the same message this often, in an automation repo, is a job's
 STAR_REPOS = 12  # owned repos whose stargazers are scanned for stars gained this year
 RUN_PAGES_PER_REPO = 100  # Actions: 100 runs a page, so up to 10,000 runs a repo are timed
 RUN_PAGE_BUDGET = 600  # Actions: pages across all repos (one REST call each); past it, estimated
@@ -496,14 +497,28 @@ def public_name(repo: dict, include_private: bool) -> str:
     return repo["nameWithOwner"]
 
 
+def commit_template(commit: dict) -> str:
+    return " ".join(re.sub(r"[0-9a-f]{7,}|\d+", "#", commit["messageHeadline"].lower()).split()[:4])
+
+
 def template_share(commits: list[dict]) -> float:
     """Share of commits whose headline matches the most common normalised template."""
     if not commits:
         return 0.0
-    norm = collections.Counter(
-        " ".join(re.sub(r"[0-9a-f]{7,}|\d+", "#", c["messageHeadline"].lower()).split()[:4]) for c in commits
-    )
+    norm = collections.Counter(commit_template(c) for c in commits)
     return norm.most_common(1)[0][1] / len(commits)
+
+
+def automation_by_day(commits: list[dict]) -> collections.Counter:
+    """Commits per day whose message repeats like a job's: an automation repo often runs several jobs."""
+    counts = collections.Counter(commit_template(c) for c in commits)
+    return collections.Counter(c["committedDate"][:10] for c in commits
+                               if counts[commit_template(c)] >= AUTOMATION_REPEATS)
+
+
+def without_automation(days: list[dict], by_day: collections.Counter) -> list[dict]:
+    """The calendar as the person made it. A daily job otherwise makes every day a streak day."""
+    return [{**d, "contributionCount": max(0, d["contributionCount"] - by_day.get(d["date"], 0))} for d in days]
 
 
 def search_count(q: str) -> int:
@@ -688,6 +703,8 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
     first_commit = None
     automated = []
     automated_full = []  # real nameWithOwner, used only to exclude them from searches
+    auto_by_day = collections.Counter()
+    auto_capped = False  # more automation commits than the sample read: its days are not all known
     for r in repos[:HISTORY_REPOS]:
         after = None
         commits = []
@@ -711,7 +728,12 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
             after = hist["pageInfo"]["endCursor"]
         share = template_share(commits)
         if len(commits) >= 50 and share >= 0.6:
-            automated.append({"name": r["name"], "commits": r["commits"], "template_share": round(share, 3)})
+            made = automation_by_day(commits)
+            auto_by_day += made
+            capped = len(commits) < r["commits"]
+            auto_capped = auto_capped or capped
+            automated.append({"name": r["name"], "commits": r["commits"] if capped else sum(made.values()),
+                              "template_share": round(share, 3)})
             automated_full.append(f"{r['_owner']}/{r['_name']}")
             continue
         for c in commits:
@@ -795,6 +817,12 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
         for k in [k for k in r if k.startswith("_")]:
             r.pop(k)
 
+    # What the person did: the headline and the calendar stay GitHub's, the rhythm claims do not count jobs.
+    own_days = without_automation(days, auto_by_day)
+    own_active = sum(1 for d in own_days if d["contributionCount"] > 0)
+    own_total = sum(d["contributionCount"] for d in own_days)
+    own_weekend = sum(d["contributionCount"] for d in own_days if dt.date.fromisoformat(d["date"]).weekday() >= 5)
+
     out = {
         "schema": 2,
         "user": {
@@ -825,14 +853,14 @@ def collect(user: str, year: int, tz: str, include_private: bool) -> tuple[dict,
         },
         "calendar": [[d["date"], d["contributionCount"]] for d in days],
         "rhythm": {
-            "active_days": len(active),
-            "active_share": round(len(active) / len(days), 4) if days else 0,
-            "streak": streaks(days),
+            "active_days": own_active,
+            "active_share": round(own_active / len(days), 4) if days else 0,
+            "streak": {**streaks(own_days), "automation_capped": auto_capped},
             "busiest_day": ({"date": busiest["date"], "count": busiest["contributionCount"],
                              "prs_merged": merged_by_day.get(busiest["date"], 0)} if busiest else None),
             "by_month": [by_month[m] for m in range(1, 13)],
             "by_weekday": [by_weekday[i] for i in range(7)],  # Monday first
-            "weekend_share": round(weekend / total_cal, 4) if total_cal else 0,
+            "weekend_share": round(own_weekend / own_total, 4) if own_total else 0,
             "peak_hour": peak_hour,
             "by_hour": [hours[h] for h in range(24)],
             "night_share": round(night_share, 4),

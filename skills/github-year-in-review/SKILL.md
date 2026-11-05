@@ -49,7 +49,9 @@ totals, the daily calendar, rhythm (streak, hours, weekdays), top repos, languag
 requests, new repos, stars gained this year, and **automation**: repos where at least 60% of
 sampled commits share one message template (a cron committing as the user), the contribution
 totals of the two years before (year on year), and the primary language of each owned repo. Automation is kept
-out of the rhythm and "work" beats and becomes its own surprise beat.
+out of the rhythm and "work" beats and becomes its own surprise beat: the longest run, active days
+and weekend share are worked out with its commits taken off the calendar, so a daily job is not a
+streak. Past the history sample its days are not all known, and the run beat is dropped.
 
 It also collects the optional, topical data: **agents** (commits co-written with coding agents,
 detected from signatures only, plus agent PRs by footer, app author and `claude/`-style branch
